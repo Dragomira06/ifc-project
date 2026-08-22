@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BIM IFC Viewer</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #app { width: 100vw; height: 100vh; }
+        
+        /* Drop Zones */
+        .dropZone {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(20,20,20,0.95);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            color: white; z-index: 100;
+            border: 4px dashed #666;
+            transition: all 0.2s ease;
+        }
+        .dropZone.dragover { border-color: #4a9eff; background: rgba(20,20,50,0.95); }
+        .dropZone h2 { font-size: 24px; margin-bottom: 10px; }
+        .dropZone p { color: #aaa; }
+        .fileInput { display: none; }
+        .hidden { display: none !important; }
+
+        /* Action Buttons */
+        .btn-panel {
+            position: fixed; top: 10px; left: 10px;
+            display: flex; flex-direction: column; gap: 8px;
+            z-index: 50;
+        }
+        .btn {
+            padding: 10px 16px; color: white;
+            border: none; border-radius: 6px; cursor: pointer;
+            font-family: inherit; font-size: 14px; font-weight: 600;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            transition: background 0.2s;
+        }
+        #addModelBtn { background: #4a9eff; }
+        #clashBtn { background: #e74c3c; }
+        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+
+        /* Side Panels */
+        .panel {
+            position: fixed;
+            background: rgba(20, 20, 20, 0.9); color: white;
+            padding: 14px; border-radius: 8px;
+            font-size: 13px; max-height: 75vh; overflow-y: auto;
+            backdrop-filter: blur(4px);
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+            z-index: 40;
+        }
+
+        /* Element Panel (Right Side) */
+        #elementPanel { top: 10px; right: 10px; width: 260px; }
+        #elementPanel h3 { margin: 0 0 10px 0; font-size: 15px; border-bottom: 1px solid #444; padding-bottom: 6px; }
+        
+        .panel-actions { display: flex; gap: 6px; margin-bottom: 10px; }
+        .btn-small {
+            padding: 4px 8px; font-size: 11px; background: #444; border: none; color: #fff;
+            border-radius: 4px; cursor: pointer;
+        }
+        .btn-small:hover { background: #666; }
+
+        /* Clash Panel (Left Bottom) */
+        #clashPanel { bottom: 20px; left: 10px; width: 320px; max-height: 350px; }
+        #clashPanel h3 { margin: 0 0 10px 0; font-size: 15px; color: #ff6b6b; border-bottom: 1px solid #444; padding-bottom: 6px; }
+        
+        .clash-item {
+            padding: 8px; margin: 4px 0; background: rgba(255,255,255,0.05);
+            border-radius: 4px; cursor: pointer; border-left: 3px solid #e74c3c;
+            transition: background 0.2s;
+        }
+        .clash-item:hover { background: rgba(255,255,255,0.15); }
+        .clash-item .title { font-weight: bold; font-size: 12px; color: #fff; }
+        .clash-item .details { font-size: 11px; color: #aaa; margin-top: 2px; }
+
+        /* Scrollbar styling */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        ::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div id="app"></div>
+
+    <!-- Drop zones -->
+    <div id="dropZone1" class="dropZone">
+        <h2>Качете основен модел</h2>
+        <p>Плъзнете IFC файл тук или кликнете (напр. архитектура)</p>
+        <input type="file" id="fileInput1" class="fileInput" accept=".ifc">
+    </div>
+
+    <div id="dropZone2" class="dropZone hidden">
+        <h2>Качете втори модел</h2>
+        <p>Плъзнете IFC файл тук или кликнете (напр. инсталации)</p>
+        <input type="file" id="fileInput2" class="fileInput" accept=".ifc">
+    </div>
+
+     <!-- Action Buttons Panel -->
+    <div class="btn-panel">
+        <button id="addModelBtn" class="btn hidden">+ Добави втори модел</button>
+        <button id="clashBtn" class="btn hidden">Провери за колизии</button>
+        <button id="navModeBtn" class="btn" style="background: #27ae60;">🚶 Влез вътре (First-Person)</button>
+    </div>
+
+    <!-- Instructions Overlay for First-Person -->
+    <div id="fpInstructions" class="hidden" style="
+        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+        background: rgba(0,0,0,0.8); color: white; padding: 10px 20px; border-radius: 20px;
+        font-size: 13px; pointer-events: none; z-index: 60; border: 1px solid #555;">
+        Ходене: <b>W, A, S, D</b> | Завъртане: <b>Мишка</b> | Изход: <b>ESC</b>
+    </div>
+
+    <!-- Elements Panel -->
+    <div id="elementPanel" class="panel hidden">
+        <h3>Елементи в модела</h3>
+        <div class="panel-actions">
+            <button id="showAllBtn" class="btn-small">Покажи всички</button>
+            <button id="hideAllBtn" class="btn-small">Скрий всички</button>
+        </div>
+        <div id="elementList"></div>
+    </div>
+
+    <!-- Clash Inspector Panel -->
+    <div id="clashPanel" class="panel hidden">
+        <h3>Списък на колизиите (<span id="clashCount">0</span>)</h3>
+        <div id="clashList"></div>
+    </div>
+
+     <script type="module" src="/src/main.js"></script>
+</body>
+</html>
