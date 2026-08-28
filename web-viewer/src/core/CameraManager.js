@@ -1,4 +1,3 @@
-// ---  OrbitControls, PointerLockControls (First-Person), свободния скрол, гравитацията и десния клик за фокус ---
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { PointerLockControls } from 'three/examples/jsm/controls/PointerLockControls.js';
@@ -17,11 +16,17 @@ export class CameraManager {
         this.GRAVITY = 18.0;
         this.floorRaycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 3.0);
 
+        // Raycasting за кликане върху обекти
+        this.selectionRaycaster = new THREE.Raycaster();
+        this.mouse = new THREE.Vector2();
+        this.onObjectSelected = null; // Callback за BIMDataInspector
+
         this.initControls();
         this.setupFreeZoom();
         this.setupContextMenuPivot();
         this.setupKeyboardListeners();
         this.setupUIEvents();
+        this.setupClickSelection();
     }
 
     initControls() {
@@ -77,7 +82,7 @@ export class CameraManager {
         const raycaster = new THREE.Raycaster();
 
         window.addEventListener('contextmenu', (event) => {
-            if (this.isFirstPerson || event.target.closest('.panel') || event.target.closest('.btn-panel')) return;
+            if (this.isFirstPerson || event.target.closest('.panel') || event.target.closest('.btn-panel') || event.target.closest('.info-panel')) return;
             event.preventDefault();
 
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -90,6 +95,39 @@ export class CameraManager {
             if (intersects.length > 0) {
                 this.orbitControls.target.copy(intersects[0].point);
                 this.orbitControls.update();
+            }
+        });
+    }
+
+    setupClickSelection() {
+        window.addEventListener('click', (event) => {
+            // Игнорираме кликове, докато сме в First-Person или кликаме върху UI панел
+            if (this.isFirstPerson || event.target.tagName !== 'CANVAS' || event.target.closest('.panel') || event.target.closest('.info-panel')) return;
+
+            this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            this.mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            this.selectionRaycaster.setFromCamera(this.mouse, this.engine.camera);
+
+            const visibleMeshes = [...this.models[1].meshes, ...this.models[2].meshes].filter(m => m.visible);
+            const intersects = this.selectionRaycaster.intersectObjects(visibleMeshes, false);
+
+            if (intersects.length > 0) {
+                const hit = intersects[0];
+                const mesh = hit.object;
+                const instanceId = hit.instanceId;
+
+                if (mesh.userData && instanceId !== undefined && this.onObjectSelected) {
+                    const instData = mesh.userData.instancesData ? mesh.userData.instancesData[instanceId] : null;
+
+                    this.onObjectSelected({
+                        mesh: mesh,
+                        instanceId: instanceId,
+                        expressID: instData ? instData.expressID : mesh.userData.expressID,
+                        typeCode: mesh.userData.typeCode,
+                        modelSlot: mesh.userData.modelSlot
+                    });
+                }
             }
         });
     }

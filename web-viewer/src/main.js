@@ -2,6 +2,8 @@ import { Engine } from './core/Engine.js';
 import { CameraManager } from './core/CameraManager.js';
 import { IFCLoaderService } from './bim/IFCLoaderService.js';
 import { BIMDataInspector } from './bim/BIMDataInspector.js';
+import { OctreeManager } from './core/OctreeManager.js';
+import { PBRMaterialMapper } from './graphics/PBRMaterialMapper.js'; // 1. Добавяме импорта
 
 // Структура за моделите
 const models = {
@@ -9,12 +11,17 @@ const models = {
     2: { modelID: null, meshes: [] }
 };
 
-// 1. Инициализиране на Сцената и Камерата
+// 1. Инициализиране на Сцената, Камерата и PBR Мапъра
 const engine = new Engine('app');
 const cameraManager = new CameraManager(engine, models);
+const octreeManager = new OctreeManager(engine.camera);
+const pbrMapper = new PBRMaterialMapper(); // 2. Инициализираме мапъра
 
 // 2. Инициализиране на Зареждащата услуга
 const ifcLoaderService = new IFCLoaderService(engine, models, () => {
+    // 3. Прилагаме PBR материалите веднага щом моделът е зареден
+    pbrMapper.applyPBRMaterials(models);
+    
     if (inspector) inspector.buildElementPanel();
 });
 
@@ -44,6 +51,12 @@ if (addModelBtn) {
 function animate() {
     requestAnimationFrame(animate);
     cameraManager.update();
+
+    const allMeshes = [...models[1].meshes, ...models[2].meshes];
+    if (allMeshes.length > 0) {
+        octreeManager.updateFrustumCulling(allMeshes);
+    }
+
     engine.renderer.render(engine.scene, engine.camera);
 }
 animate();

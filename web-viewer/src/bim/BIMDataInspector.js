@@ -10,27 +10,108 @@ export class BIMDataInspector {
 
         this.currentlySelected = null;
         this.detectedClashes = [];
+
         this.structuralTypes = [
             WebIFC.IFCWALLSTANDARDCASE, WebIFC.IFCWALL,
             WebIFC.IFCSLAB, WebIFC.IFCBEAM, WebIFC.IFCROOF, WebIFC.IFCFOOTING
         ];
         this.mepTypes = [WebIFC.IFCFLOWSEGMENT];
 
+        this.typeNames = {
+            [WebIFC.IFCWALLSTANDARDCASE]: 'Стена',
+            [WebIFC.IFCWALL]: 'Стена',
+            [WebIFC.IFCWINDOW]: 'Прозорец',
+            [WebIFC.IFCDOOR]: 'Врата',
+            [WebIFC.IFCSLAB]: 'Плоча / Под',
+            [WebIFC.IFCROOF]: 'Покрив',
+            [WebIFC.IFCSTAIR]: 'Стълба',
+            [WebIFC.IFCSTAIRFLIGHT]: 'Стълба',
+            [WebIFC.IFCRAILING]: 'Парапет',
+            [WebIFC.IFCFURNISHINGELEMENT]: 'Мебел',
+            [WebIFC.IFCCOLUMN]: 'Колона',
+            [WebIFC.IFCBEAM]: 'Греда',
+            [WebIFC.IFCFLOWSEGMENT]: 'Тръба / Канал'
+        };
+
         this.initInfoPanel();
-        this.setupClickRaycaster();
+        this.setupClickSelection();
         this.setupClashDetection();
     }
 
+    getTypeName(typeCode) {
+        return this.typeNames[typeCode] || `Тип ${typeCode}`;
+    }
+
     initInfoPanel() {
-        this.infoPanel = document.createElement('div');
-        this.infoPanel.style.cssText = `
-            position: fixed; top: 10px; left: 220px;
-            background: rgba(0,0,0,0.85); color: white;
-            padding: 12px; border-radius: 6px;
-            font-size: 13px; max-width: 280px; display: none; z-index: 40;
-            border: 1px solid rgba(255,255,255,0.1);
+        let panel = document.getElementById('infoPanel');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'infoPanel';
+            panel.className = 'info-panel';
+            panel.style.cssText = `
+                position: fixed; top: 10px; left: 220px;
+                background: rgba(0,0,0,0.85); color: white;
+                padding: 12px; border-radius: 6px;
+                font-size: 13px; max-width: 280px; display: none; z-index: 40;
+                border: 1px solid rgba(255,255,255,0.1);
+            `;
+            document.body.appendChild(panel);
+        }
+        this.infoPanel = panel;
+    }
+
+    setupClickSelection() {
+        if (this.cameraManager) {
+            this.cameraManager.onObjectSelected = (data) => this.showPropertiesPanel(data);
+        }
+    }
+
+    showPropertiesPanel(data) {
+        this.currentlySelected = data.mesh;
+        const expressID = data.expressID;
+        const slot = data.modelSlot;
+        const typeName = this.getTypeName(data.typeCode);
+
+        let name = 'няма';
+        let guid = 'няма';
+
+        // Дърпаме детайлите от userData
+        if (data.mesh.userData && data.mesh.userData.instancesData && data.instanceId !== undefined) {
+            const instData = data.mesh.userData.instancesData[data.instanceId];
+            if (instData) {
+                if (instData.Name) name = instData.Name;
+                if (instData.GlobalId) guid = instData.GlobalId;
+            }
+        }
+
+        const currentColor = '#' + data.mesh.material.color.getHexString();
+
+        this.infoPanel.style.display = 'block';
+        this.infoPanel.innerHTML = `
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #444; padding-bottom:6px; margin-bottom:8px;">
+                <strong style="font-size:14px;">Информация за обекта</strong>
+                <button id="closeInfoBtn" style="background:none; border:none; color:#aaa; cursor:pointer; font-size:14px;">✕</button>
+            </div>
+            <strong>Модел слот:</strong> ${slot}<br>
+            <strong>Тип:</strong> ${typeName}<br>
+            <strong>Име:</strong> ${name}<br>
+            <strong>GUID:</strong> ${guid}<br>
+            <strong>Express ID:</strong> ${expressID}<br>
+            <hr style="border:0; border-top:1px solid #444; margin:8px 0;" />
+            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
+                <span>Промени цвят:</span>
+                <input type="color" id="colorPicker" value="${currentColor}" style="border:none; width:28px; height:28px; cursor:pointer; background:none;">
+            </label>
         `;
-        document.body.appendChild(this.infoPanel);
+
+        document.getElementById('closeInfoBtn').onclick = () => {
+            this.infoPanel.style.display = 'none';
+        };
+
+        document.getElementById('colorPicker')?.addEventListener('input', (e) => {
+            this.currentlySelected.material.color.set(new THREE.Color(e.target.value));
+            this.currentlySelected.material.needsUpdate = true;
+        });
     }
 
     buildElementPanel() {
@@ -40,8 +121,9 @@ export class BIMDataInspector {
 
         const grouped = {};
         for (const slot of [1, 2]) {
+            if (!this.models[slot] || !this.models[slot].meshes) continue;
             for (const mesh of this.models[slot].meshes) {
-                const typeName = WebIFC.IfcElements ? (WebIFC.IfcElements[mesh.userData.typeCode] || 'Неизвестен') : `Тип ${mesh.userData.typeCode}`;
+                const typeName = this.getTypeName(mesh.userData.typeCode);
                 if (!grouped[typeName]) grouped[typeName] = [];
                 grouped[typeName].push(mesh);
             }
@@ -55,15 +137,24 @@ export class BIMDataInspector {
             row.style.cssText = 'margin: 4px 0; display: flex; align-items: center; justify-content: space-between;';
 
             const labelContainer = document.createElement('label');
-            labelContainer.style.cssText = 'display: flex; align-items: center; cursor: pointer;';
+            labelContainer.style.cssText = 'display: flex; align-items: center; cursor: pointer; color: white;';
 
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
-            checkbox.checked = true;
+            checkbox.checked = true; // Слагаме ги чекнати по подразбиране
             checkbox.style.marginRight = '8px';
+
             checkbox.addEventListener('change', () => {
+                const isVisible = checkbox.checked;
                 for (const mesh of meshes) {
-                    mesh.visible = checkbox.checked;
+                    mesh.visible = isVisible;
+                    // Използваме физическо свиване (scale), за да прескочим Octree преченето
+                    if (isVisible) {
+                        mesh.scale.set(1, 1, 1);
+                    } else {
+                        mesh.scale.set(0, 0, 0);
+                    }
+                    mesh.updateMatrixWorld();
                 }
             });
 
@@ -78,7 +169,6 @@ export class BIMDataInspector {
 
         document.getElementById('elementPanel')?.classList.remove('hidden');
 
-        // Коригирани Event Listeners:
         const showBtn = document.getElementById('showAllBtn');
         if (showBtn) showBtn.onclick = () => this.toggleAllElements(true);
 
@@ -94,52 +184,6 @@ export class BIMDataInspector {
         });
     }
 
-    setupClickRaycaster() {
-        const raycaster = new THREE.Raycaster();
-        const mouse = new THREE.Vector2();
-
-        window.addEventListener('click', (event) => {
-            if (this.cameraManager.isFirstPerson || event.target.closest('.panel') || event.target.closest('.btn-panel')) return;
-
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-            raycaster.setFromCamera(mouse, this.engine.camera);
-            const visibleMeshes = [...this.models[1].meshes, ...this.models[2].meshes].filter(m => m.visible);
-            const intersects = raycaster.intersectObjects(visibleMeshes);
-
-            if (intersects.length > 0) {
-                const clicked = intersects[0].object;
-                const expressID = clicked.userData.expressID;
-                const slot = clicked.userData.modelSlot;
-                const ifcApi = this.ifcLoaderService.ifcApi;
-
-                if (expressID !== undefined && ifcApi) {
-                    this.currentlySelected = clicked;
-                    const props = ifcApi.GetLine(this.models[slot].modelID, expressID);
-                    const currentColor = '#' + clicked.material.color.getHexString();
-
-                    this.infoPanel.style.display = 'block';
-                    this.infoPanel.innerHTML = `
-                        <strong>Модел слот:</strong> ${slot}<br>
-                        <strong>Тип:</strong> ${props.constructor?.name || 'IFC Element'}<br>
-                        <strong>Име:</strong> ${props.Name?.value || 'няма'}<br>
-                        <strong>GUID:</strong> ${props.GlobalId?.value || 'няма'}<br>
-                        <strong>Express ID:</strong> ${expressID}<br>
-                        <br>
-                        <label>Промени цвят: <input type="color" id="colorPicker" value="${currentColor}"></label>
-                    `;
-
-                    document.getElementById('colorPicker')?.addEventListener('input', (e) => {
-                        this.currentlySelected.material.color.set(new THREE.Color(e.target.value));
-                    });
-                }
-            } else {
-                this.infoPanel.style.display = 'none';
-            }
-        });
-    }
-
     setupClashDetection() {
         const clashBtn = document.getElementById('clashBtn');
         clashBtn?.addEventListener('click', () => {
@@ -147,15 +191,18 @@ export class BIMDataInspector {
             const clashList = document.getElementById('clashList');
             if (clashList) clashList.innerHTML = '';
 
-            const structural = this.models[1].meshes.filter(m => this.structuralTypes.includes(m.userData.typeCode));
-            const mep = this.models[2].meshes.filter(m => this.mepTypes.includes(m.userData.typeCode));
+            const structural = (this.models[1]?.meshes || []).filter(m => this.structuralTypes.includes(m.userData.typeCode));
+            const mep = (this.models[2]?.meshes || []).filter(m => this.mepTypes.includes(m.userData.typeCode));
 
             const boxA = new THREE.Box3();
             const boxB = new THREE.Box3();
 
             for (const meshA of structural) {
+                if (!meshA.geometry.boundingBox) meshA.geometry.computeBoundingBox();
                 boxA.copy(meshA.geometry.boundingBox).applyMatrix4(meshA.matrixWorld);
+
                 for (const meshB of mep) {
+                    if (!meshB.geometry.boundingBox) meshB.geometry.computeBoundingBox();
                     boxB.copy(meshB.geometry.boundingBox).applyMatrix4(meshB.matrixWorld);
 
                     if (boxA.intersectsBox(boxB)) {
@@ -171,7 +218,6 @@ export class BIMDataInspector {
 
                         meshA.material.color.set(0xff0000);
                         meshB.material.color.set(0xff0000);
-                        meshB.material.opacity = 1;
                     }
                 }
             }
@@ -196,13 +242,14 @@ export class BIMDataInspector {
         this.detectedClashes.slice(0, 50).forEach((clash, index) => {
             const item = document.createElement('div');
             item.className = 'clash-item';
+            item.style.cssText = 'padding: 6px; margin: 4px 0; background: rgba(255,255,255,0.1); cursor: pointer; border-radius: 4px;';
 
-            const nameA = WebIFC.IfcElements ? (WebIFC.IfcElements[clash.meshA.userData.typeCode] || 'Архитектура') : 'Архитектура';
-            const nameB = WebIFC.IfcElements ? (WebIFC.IfcElements[clash.meshB.userData.typeCode] || 'Инсталация') : 'Инсталация';
+            const nameA = this.getTypeName(clash.meshA.userData.typeCode);
+            const nameB = this.getTypeName(clash.meshB.userData.typeCode);
 
             item.innerHTML = `
-                <div class="title">Колизия #${index + 1}</div>
-                <div class="details">${nameA} [ID: ${clash.idA}] ↔ ${nameB} [ID: ${clash.idB}]</div>
+                <div class="title" style="font-weight:bold; color:#ff6b6b;">Колизия #${index + 1}</div>
+                <div class="details" style="font-size:12px; color:#ccc;">${nameA} [ID: ${clash.idA}] ↔ ${nameB} [ID: ${clash.idB}]</div>
             `;
 
             item.addEventListener('click', () => this.focusOnClash(clash));
