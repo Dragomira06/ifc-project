@@ -1,7 +1,7 @@
 {
   "name": "web-viewer",
   "version": "1.0.0",
-  "homepage": "https://dragomira06.github.io/ifc-project/",
+   
   "description": "",
   "main": "index.js",
   "scripts": {
