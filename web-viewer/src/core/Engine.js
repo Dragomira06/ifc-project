@@ -13,10 +13,26 @@ export class Engine {
 
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
+        
+        // --- НОВИ РЕДОВЕ: Активиране на физически сенки и тонална настройка ---
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        this.renderer.toneMappingExposure = 1.0;
+        // ----------------------------------------------------------------------
+
         this.container.appendChild(this.renderer.domElement);
 
-        this.light = new THREE.HemisphereLight(0xffffff, 0x444444, 3);
+        // Основно разсеяно осветление
+        this.light = new THREE.HemisphereLight(0xffffff, 0x444444, 2);
         this.scene.add(this.light);
+
+        // --- НОВИ РЕДОВЕ: Направлявана слънчева светлина за създаване на релеф и сенки ---
+        this.dirLight = new THREE.DirectionalLight(0xfffaed, 1.2);
+        this.dirLight.position.set(20, 40, 20);
+        this.dirLight.castShadow = true;
+        this.scene.add(this.dirLight);
+        // -----------------------------------------------------------------------------------
 
         window.addEventListener('resize', () => this.onWindowResize());
     }

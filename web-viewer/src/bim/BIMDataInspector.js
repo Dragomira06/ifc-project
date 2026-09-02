@@ -1,12 +1,14 @@
-import * as THREE from 'three';
+ import * as THREE from 'three';
 import * as WebIFC from 'web-ifc';
 
 export class BIMDataInspector {
-    constructor(engine, models, ifcLoaderService, cameraManager) {
+    // 1. Добавихме materialManager като 5-ти параметър
+    constructor(engine, models, ifcLoaderService, cameraManager, materialManager = null) {
         this.engine = engine;
         this.models = models;
         this.ifcLoaderService = ifcLoaderService;
         this.cameraManager = cameraManager;
+        this.materialManager = materialManager; // НОВ РЕД
 
         this.currentlySelected = null;
         this.detectedClashes = [];
@@ -36,10 +38,37 @@ export class BIMDataInspector {
         this.initInfoPanel();
         this.setupClickSelection();
         this.setupClashDetection();
+        this.setupRenderSwitchButton(); // НОВ РЕД: Създава Switch бутона
     }
 
     getTypeName(typeCode) {
         return this.typeNames[typeCode] || `Тип ${typeCode}`;
+    }
+
+    // НОВ МЕТОД: Автоматично генерира Switch бутона горе вдясно
+    setupRenderSwitchButton() {
+        if (!this.materialManager) return;
+
+        let btn = document.getElementById('renderSwitchBtn');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.id = 'renderSwitchBtn';
+            btn.innerHTML = '🎨 PBR Реалистичен режим: ИЗКЛ';
+            btn.style.cssText = `
+                position: fixed; top: 12px; right: 20px; z-index: 50;
+                padding: 10px 16px; background: #2c3e50; color: white;
+                border: 1px solid #34495e; border-radius: 6px; cursor: pointer;
+                font-weight: bold; font-size: 13px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+                transition: all 0.3s ease;
+            `;
+            document.body.appendChild(btn);
+        }
+
+        btn.onclick = () => {
+            const isRealistic = this.materialManager.toggleRealisticMode(this.models);
+            btn.innerHTML = isRealistic ? '✨ PBR Реалистичен режим: ВКЛ' : '🎨 PBR Реалистичен режим: ИЗКЛ';
+            btn.style.background = isRealistic ? '#27ae60' : '#2c3e50';
+        };
     }
 
     initInfoPanel() {
@@ -52,7 +81,7 @@ export class BIMDataInspector {
                 position: fixed; top: 10px; left: 220px;
                 background: rgba(0,0,0,0.85); color: white;
                 padding: 12px; border-radius: 6px;
-                font-size: 13px; max-width: 280px; display: none; z-index: 40;
+                font-size: 13px; width: 280px; display: none; z-index: 40;
                 border: 1px solid rgba(255,255,255,0.1);
             `;
             document.body.appendChild(panel);
@@ -75,7 +104,6 @@ export class BIMDataInspector {
         let name = 'няма';
         let guid = 'няма';
 
-        // Дърпаме детайлите от userData
         if (data.mesh.userData && data.mesh.userData.instancesData && data.instanceId !== undefined) {
             const instData = data.mesh.userData.instancesData[data.instanceId];
             if (instData) {
@@ -85,8 +113,11 @@ export class BIMDataInspector {
         }
 
         const currentColor = '#' + data.mesh.material.color.getHexString();
+        const currentMatType = data.mesh.userData.materialType || 'plaster';
 
         this.infoPanel.style.display = 'block';
+        
+        // НОВО В ИНФО ПАНЕЛА: Добавено падащо меню за PBR материали
         this.infoPanel.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #444; padding-bottom:6px; margin-bottom:8px;">
                 <strong style="font-size:14px;">Информация за обекта</strong>
@@ -98,8 +129,20 @@ export class BIMDataInspector {
             <strong>GUID:</strong> ${guid}<br>
             <strong>Express ID:</strong> ${expressID}<br>
             <hr style="border:0; border-top:1px solid #444; margin:8px 0;" />
+            
+            <div style="margin-bottom: 8px;">
+                <label style="display:block; margin-bottom:4px; font-size:12px; color:#ccc;">Текстура / Материал:</label>
+                <select id="materialSelector" style="width:100%; padding:5px; background:#222; color:white; border:1px solid #555; border-radius:4px; outline:none;">
+                    <option value="plaster" ${currentMatType === 'plaster' ? 'selected' : ''}>Декоративна мазилка</option>
+                    <option value="stone" ${currentMatType === 'stone' ? 'selected' : ''}>Каменна облицовка (Релеф)</option>
+                    <option value="wood" ${currentMatType === 'wood' ? 'selected' : ''}>Дърво</option>
+                    <option value="glass" ${currentMatType === 'glass' ? 'selected' : ''}>Стъкло</option>
+                    <option value="metal" ${currentMatType === 'metal' ? 'selected' : ''}>Метал</option>
+                </select>
+            </div>
+
             <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
-                <span>Промени цвят:</span>
+                <span>Нюанс / Цвят:</span>
                 <input type="color" id="colorPicker" value="${currentColor}" style="border:none; width:28px; height:28px; cursor:pointer; background:none;">
             </label>
         `;
@@ -108,10 +151,22 @@ export class BIMDataInspector {
             this.infoPanel.style.display = 'none';
         };
 
-        document.getElementById('colorPicker')?.addEventListener('input', (e) => {
-            this.currentlySelected.material.color.set(new THREE.Color(e.target.value));
-            this.currentlySelected.material.needsUpdate = true;
-        });
+        // НОВИ EVENT LISTENERS: Запазват релефа при смяна на цвета или материала
+        const handleMaterialUpdate = () => {
+            if (!this.currentlySelected) return;
+            const newColor = document.getElementById('colorPicker').value;
+            const newMatType = document.getElementById('materialSelector').value;
+
+            if (this.materialManager && this.materialManager.isRealisticMode) {
+                this.materialManager.updateObjectColorAndMaterial(this.currentlySelected, newColor, newMatType);
+            } else {
+                this.currentlySelected.material.color.set(new THREE.Color(newColor));
+                this.currentlySelected.material.needsUpdate = true;
+            }
+        };
+
+        document.getElementById('colorPicker')?.addEventListener('input', handleMaterialUpdate);
+        document.getElementById('materialSelector')?.addEventListener('change', handleMaterialUpdate);
     }
 
     buildElementPanel() {
@@ -141,14 +196,13 @@ export class BIMDataInspector {
 
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
-            checkbox.checked = true; // Слагаме ги чекнати по подразбиране
+            checkbox.checked = true;
             checkbox.style.marginRight = '8px';
 
             checkbox.addEventListener('change', () => {
                 const isVisible = checkbox.checked;
                 for (const mesh of meshes) {
                     mesh.visible = isVisible;
-                    // Използваме физическо свиване (scale), за да прескочим Octree преченето
                     if (isVisible) {
                         mesh.scale.set(1, 1, 1);
                     } else {

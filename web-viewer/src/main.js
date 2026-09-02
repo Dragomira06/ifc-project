@@ -3,7 +3,7 @@ import { CameraManager } from './core/CameraManager.js';
 import { IFCLoaderService } from './bim/IFCLoaderService.js';
 import { BIMDataInspector } from './bim/BIMDataInspector.js';
 import { OctreeManager } from './core/OctreeManager.js';
-import { PBRMaterialMapper } from './graphics/PBRMaterialMapper.js'; // 1. Добавяме импорта
+import { MaterialManager } from './bim/MaterialManager.js'; // 1. Промяна: Импортираме MaterialManager
 
 // Структура за моделите
 const models = {
@@ -11,22 +11,21 @@ const models = {
     2: { modelID: null, meshes: [] }
 };
 
-// 1. Инициализиране на Сцената, Камерата и PBR Мапъра
+// 1. Инициализиране на Сцената, Камерата и MaterialManager
 const engine = new Engine('app');
 const cameraManager = new CameraManager(engine, models);
 const octreeManager = new OctreeManager(engine.camera);
-const pbrMapper = new PBRMaterialMapper(); // 2. Инициализираме мапъра
+const materialManager = new MaterialManager(engine); // 2. Промяна: Инициализираме новия MaterialManager
 
 // 2. Инициализиране на Зареждащата услуга
 const ifcLoaderService = new IFCLoaderService(engine, models, () => {
-    // 3. Прилагаме PBR материалите веднага щом моделът е зареден
-    pbrMapper.applyPBRMaterials(models);
-    
+    // Моделът зарежда бързо в суров IFC вариант. 
+    // PBR се активира само при клик на Switch бутона.
     if (inspector) inspector.buildElementPanel();
 });
 
-// 3. Инициализиране на Инспектора
-const inspector = new BIMDataInspector(engine, models, ifcLoaderService, cameraManager);
+// 3. Инициализиране на Инспектора (3. Промяна: Подаваме materialManager като 5-ти аргумент)
+const inspector = new BIMDataInspector(engine, models, ifcLoaderService, cameraManager, materialManager);
 
 // 4. Настройка на Drop-зоните
 const addModelBtn = document.getElementById('addModelBtn');
