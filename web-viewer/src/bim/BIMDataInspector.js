@@ -133,7 +133,8 @@ export class BIMDataInspector {
             <div style="margin-bottom: 8px;">
                 <label style="display:block; margin-bottom:4px; font-size:12px; color:#ccc;">Текстура / Материал:</label>
                 <select id="materialSelector" style="width:100%; padding:5px; background:#222; color:white; border:1px solid #555; border-radius:4px; outline:none;">
-                    <option value="plaster" ${currentMatType === 'plaster' ? 'selected' : ''}>Декоративна мазилка</option>
+                    <option value="default" ${currentMatType === 'default' ? 'selected' : ''}>Чертожен вид</option>
+                    <option value="plaster" ${currentMatType === 'plaster' ? 'selected' : ''}>Мазилка</option>
                     <option value="stone" ${currentMatType === 'stone' ? 'selected' : ''}>Каменна облицовка (Релеф)</option>
                     <option value="wood" ${currentMatType === 'wood' ? 'selected' : ''}>Дърво</option>
                     <option value="glass" ${currentMatType === 'glass' ? 'selected' : ''}>Стъкло</option>
