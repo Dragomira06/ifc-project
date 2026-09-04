@@ -4,7 +4,7 @@ import { IFCLoaderService } from './bim/IFCLoaderService.js';
 import { BIMDataInspector } from './bim/BIMDataInspector.js';
 import { OctreeManager } from './core/OctreeManager.js';
 import { MaterialManager } from './bim/MaterialManager.js'; // 1. Промяна: Импортираме MaterialManager
-
+import { EnvironmentManager } from './graphics/EnvironmentManager.js';
 // Структура за моделите
 const models = {
     1: { modelID: null, meshes: [] },
@@ -16,6 +16,7 @@ const engine = new Engine('app');
 const cameraManager = new CameraManager(engine, models);
 const octreeManager = new OctreeManager(engine.camera);
 const materialManager = new MaterialManager(engine); // 2. Промяна: Инициализираме новия MaterialManager
+const envManager = new EnvironmentManager(engine);
 
 // 2. Инициализиране на Зареждащата услуга
 const ifcLoaderService = new IFCLoaderService(engine, models, () => {
@@ -25,7 +26,7 @@ const ifcLoaderService = new IFCLoaderService(engine, models, () => {
 });
 
 // 3. Инициализиране на Инспектора (3. Промяна: Подаваме materialManager като 5-ти аргумент)
-const inspector = new BIMDataInspector(engine, models, ifcLoaderService, cameraManager, materialManager);
+const inspector = new BIMDataInspector(engine, models, ifcLoaderService, cameraManager, materialManager,envManager);
 
 // 4. Настройка на Drop-зоните
 const addModelBtn = document.getElementById('addModelBtn');
@@ -49,13 +50,37 @@ if (addModelBtn) {
 // 5. Главен Анимационен цикъл
 function animate() {
     requestAnimationFrame(animate);
-    cameraManager.update();
 
-    const allMeshes = [...models[1].meshes, ...models[2].meshes];
-    if (allMeshes.length > 0) {
-        octreeManager.updateFrustumCulling(allMeshes);
+    // 1. Безопасно обновяване на камерата
+    if (cameraManager && typeof cameraManager.update === 'function') {
+        cameraManager.update();
     }
 
-    engine.renderer.render(engine.scene, engine.camera);
+    // 2. Обновяване на средата/дъжда
+    if (envManager && typeof envManager.update === 'function') {
+        envManager.update();
+    }
+
+    // 3. БЕЗОПАСНО събиране на мешовете от моделите (без да гърми на [1] или [2])
+    if (models && octreeManager) {
+        const allMeshes = [];
+        
+        // Преминаваме през всички налични модели, без значение колко са (0, 1 или 2)
+        Object.values(models).forEach(model => {
+            if (model && model.meshes && Array.isArray(model.meshes)) {
+                allMeshes.push(...model.meshes);
+            }
+        });
+
+        if (allMeshes.length > 0 && typeof octreeManager.updateFrustumCulling === 'function') {
+            octreeManager.updateFrustumCulling(allMeshes);
+        }
+    }
+
+    // 4. Безопасно рендериране
+    if (engine && engine.renderer && engine.scene && engine.camera) {
+        engine.renderer.render(engine.scene, engine.camera);
+    }
 }
+
 animate();

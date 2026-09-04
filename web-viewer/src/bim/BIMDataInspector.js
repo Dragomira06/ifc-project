@@ -1,14 +1,15 @@
- import * as THREE from 'three';
+import * as THREE from 'three';
 import * as WebIFC from 'web-ifc';
 
 export class BIMDataInspector {
-    // 1. Добавихме materialManager като 5-ти параметър
-    constructor(engine, models, ifcLoaderService, cameraManager, materialManager = null) {
+    // 1. Добавихме envManager като 6-ти параметър
+    constructor(engine, models, ifcLoaderService, cameraManager, materialManager = null, envManager = null) {
         this.engine = engine;
         this.models = models;
         this.ifcLoaderService = ifcLoaderService;
         this.cameraManager = cameraManager;
-        this.materialManager = materialManager; // НОВ РЕД
+        this.materialManager = materialManager;
+        this.envManager = envManager; // НОВ РЕД: Запазваме референция към атмосферата
 
         this.currentlySelected = null;
         this.detectedClashes = [];
@@ -38,14 +39,14 @@ export class BIMDataInspector {
         this.initInfoPanel();
         this.setupClickSelection();
         this.setupClashDetection();
-        this.setupRenderSwitchButton(); // НОВ РЕД: Създава Switch бутона
+        this.setupRenderSwitchButton();
+        this.setupEnvironmentUI(); // НОВ РЕД: Инициализира атмосферното меню
     }
 
     getTypeName(typeCode) {
         return this.typeNames[typeCode] || `Тип ${typeCode}`;
     }
 
-    // НОВ МЕТОД: Автоматично генерира Switch бутона горе вдясно
     setupRenderSwitchButton() {
         if (!this.materialManager) return;
 
@@ -70,6 +71,61 @@ export class BIMDataInspector {
             btn.style.background = isRealistic ? '#27ae60' : '#2c3e50';
         };
     }
+
+    setupEnvironmentUI() {
+    if (!this.envManager) return;
+
+    let panel = document.getElementById('envPanelUI');
+    if (!panel) {
+        panel = document.createElement('div');
+        panel.id = 'envPanelUI';
+        panel.style.cssText = `
+            position: fixed; top: 60px; right: 20px; z-index: 50;
+            background: rgba(20, 25, 35, 0.9); color: white;
+            padding: 12px 16px; border-radius: 8px; width: 220px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.4); font-size: 12px;
+        `;
+
+        panel.innerHTML = `
+            <div style="font-weight:bold; margin-bottom:8px; font-size:13px; color:#4a90e2; border-bottom:1px solid #333; padding-bottom:4px;">
+                🌅 Атмосфера & Осветление
+            </div>
+
+            <div style="margin-bottom:8px;">
+                <label style="display:block; margin-bottom:4px; color:#ccc;">Режим:</label>
+                <select id="envSelectUI" style="width:100%; padding:5px; background:#111; color:white; border:1px solid #444; border-radius:4px; outline:none; cursor:pointer;">
+                    <option value="day">☀️ Дневен режим</option>
+                    <option value="night">🌙 Нощен режим</option>
+                </select>
+            </div>
+
+            <div style="margin-bottom:8px;">
+                <label style="display:block; margin-bottom:2px; color:#ccc;">Позиция на слънцето:</label>
+                <input type="range" id="sunRotUI" min="0" max="360" value="0" style="width:100%; cursor:pointer;">
+            </div>
+
+            <div>
+                <label style="display:block; margin-bottom:2px; color:#ccc;">Яркост (Експозиция):</label>
+                <input type="range" id="exposureUI" min="0.2" max="2.5" step="0.1" value="1.0" style="width:100%; cursor:pointer;">
+            </div>
+        `;
+        document.body.appendChild(panel);
+    }
+
+    // Слушатели за промени от менюто
+    document.getElementById('envSelectUI')?.addEventListener('change', (e) => {
+        this.envManager.setEnvironment(e.target.value);
+    });
+
+    document.getElementById('sunRotUI')?.addEventListener('input', (e) => {
+        this.envManager.setSunRotation(parseFloat(e.target.value));
+    });
+
+    document.getElementById('exposureUI')?.addEventListener('input', (e) => {
+        this.envManager.setLightIntensity(parseFloat(e.target.value));
+    });
+ } 
 
     initInfoPanel() {
         let panel = document.getElementById('infoPanel');
@@ -116,8 +172,7 @@ export class BIMDataInspector {
         const currentMatType = data.mesh.userData.materialType || 'plaster';
 
         this.infoPanel.style.display = 'block';
-        
-        // НОВО В ИНФО ПАНЕЛА: Добавено падащо меню за PBR материали
+
         this.infoPanel.innerHTML = `
             <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #444; padding-bottom:6px; margin-bottom:8px;">
                 <strong style="font-size:14px;">Информация за обекта</strong>
@@ -152,7 +207,6 @@ export class BIMDataInspector {
             this.infoPanel.style.display = 'none';
         };
 
-        // НОВИ EVENT LISTENERS: Запазват релефа при смяна на цвета или материала
         const handleMaterialUpdate = () => {
             if (!this.currentlySelected) return;
             const newColor = document.getElementById('colorPicker').value;
