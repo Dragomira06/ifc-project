@@ -293,90 +293,300 @@ export class BIMDataInspector {
         });
     }
 
-    setupClashDetection() {
-        const clashBtn = document.getElementById('clashBtn');
-        clashBtn?.addEventListener('click', () => {
-            this.detectedClashes = [];
-            const clashList = document.getElementById('clashList');
-            if (clashList) clashList.innerHTML = '';
+     setupClashDetection() {
+    const clashBtn = document.getElementById('clashBtn');
+    clashBtn?.addEventListener('click', () => {
+        this.clearClashMarkers();
+        this.detectedClashes = [];
+        
+        const clashList = document.getElementById('clashList');
+        if (clashList) clashList.innerHTML = '';
 
-            const structural = (this.models[1]?.meshes || []).filter(m => this.structuralTypes.includes(m.userData.typeCode));
-            const mep = (this.models[2]?.meshes || []).filter(m => this.mepTypes.includes(m.userData.typeCode));
+        const extractInstanceBoxes = (meshes, typeFilter) => {
+            const boxes = [];
+            const tempMatrix = new THREE.Matrix4();
+            const tempBox = new THREE.Box3();
 
-            const boxA = new THREE.Box3();
-            const boxB = new THREE.Box3();
+            meshes.forEach(mesh => {
+                if (!mesh.userData || !mesh.visible) return;
+                if (typeFilter && typeFilter.length > 0 && !typeFilter.includes(mesh.userData.typeCode)) return;
+                if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
 
-            for (const meshA of structural) {
-                if (!meshA.geometry.boundingBox) meshA.geometry.computeBoundingBox();
-                boxA.copy(meshA.geometry.boundingBox).applyMatrix4(meshA.matrixWorld);
+                if (mesh.isInstancedMesh) {
+                    for (let i = 0; i < mesh.count; i++) {
+                        mesh.getMatrixAt(i, tempMatrix);
+                        const worldMatrix = tempMatrix.premultiply(mesh.matrixWorld);
+                        tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(worldMatrix);
 
-                for (const meshB of mep) {
-                    if (!meshB.geometry.boundingBox) meshB.geometry.computeBoundingBox();
-                    boxB.copy(meshB.geometry.boundingBox).applyMatrix4(meshB.matrixWorld);
+                        const instData = mesh.userData.instancesData ? mesh.userData.instancesData[i] : null;
+                        const expressID = instData ? instData.expressID : mesh.userData.expressID;
 
-                    if (boxA.intersectsBox(boxB)) {
-                        const intersectionBox = boxA.clone().intersect(boxB);
+                        boxes.push({
+                            mesh,
+                            instanceId: i,
+                            box: tempBox.clone(),
+                            expressID: expressID,
+                            typeCode: mesh.userData.typeCode
+                        });
+                    }
+                } else {
+                    tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
+                    boxes.push({
+                        mesh,
+                        instanceId: null,
+                        box: tempBox.clone(),
+                        expressID: mesh.userData.expressID,
+                        typeCode: mesh.userData.typeCode
+                    });
+                }
+            });
+
+            return boxes;
+        };
+
+        const structBoxes = extractInstanceBoxes(this.models[1]?.meshes || [], this.structuralTypes);
+        const mepBoxes = extractInstanceBoxes(this.models[2]?.meshes || [], this.mepTypes);
+
+        const MIN_OVERLAP_VOLUME = 0.00005; 
+
+        for (const itemA of structBoxes) {
+            for (const itemB of mepBoxes) {
+                if (itemA.mesh === itemB.mesh && itemA.instanceId === itemB.instanceId) continue;
+
+                if (itemA.box.intersectsBox(itemB.box)) {
+                    const intersectionBox = itemA.box.clone().intersect(itemB.box);
+                    const size = new THREE.Vector3();
+                    intersectionBox.getSize(size);
+                    const volume = size.x * size.y * size.z;
+
+                    if (volume > MIN_OVERLAP_VOLUME) {
                         const center = new THREE.Vector3();
                         intersectionBox.getCenter(center);
 
                         this.detectedClashes.push({
-                            meshA, meshB, center,
-                            idA: meshA.userData.expressID,
-                            idB: meshB.userData.expressID
+                            itemA, itemB, center, volume,
+                            intersectionBox: intersectionBox.clone(),
+                            idA: itemA.expressID,
+                            idB: itemB.expressID
                         });
-
-                        meshA.material.color.set(0xff0000);
-                        meshB.material.color.set(0xff0000);
                     }
                 }
             }
-
-            clashBtn.textContent = `Колизии: ${this.detectedClashes.length} ✓`;
-            const clashCountLabel = document.getElementById('clashCount');
-            if (clashCountLabel) clashCountLabel.textContent = this.detectedClashes.length;
-
-            this.buildClashInspectorUI();
-        });
-    }
-
-    buildClashInspectorUI() {
-        const clashList = document.getElementById('clashList');
-        if (!clashList) return;
-
-        if (this.detectedClashes.length === 0) {
-            clashList.innerHTML = '<p style="color:#aaa;">Няма намерени колизии.</p>';
-            return;
         }
 
-        this.detectedClashes.slice(0, 50).forEach((clash, index) => {
-            const item = document.createElement('div');
-            item.className = 'clash-item';
-            item.style.cssText = 'padding: 6px; margin: 4px 0; background: rgba(255,255,255,0.1); cursor: pointer; border-radius: 4px;';
+        this.enableXRayMode();
 
-            const nameA = this.getTypeName(clash.meshA.userData.typeCode);
-            const nameB = this.getTypeName(clash.meshB.userData.typeCode);
+        clashBtn.textContent = `Колизии: ${this.detectedClashes.length} ✓`;
+        const clashCountLabel = document.getElementById('clashCount');
+        if (clashCountLabel) clashCountLabel.textContent = this.detectedClashes.length;
 
-            item.innerHTML = `
-                <div class="title" style="font-weight:bold; color:#ff6b6b;">Колизия #${index + 1}</div>
-                <div class="details" style="font-size:12px; color:#ccc;">${nameA} [ID: ${clash.idA}] ↔ ${nameB} [ID: ${clash.idB}]</div>
-            `;
+        this.buildClashInspectorUI();
+    });
+}
 
-            item.addEventListener('click', () => this.focusOnClash(clash));
-            clashList.appendChild(item);
-        });
-
-        document.getElementById('clashPanel')?.classList.remove('hidden');
+createClashMarker(box3) {
+    if (!this.clashMarkersGroup) {
+        this.clashMarkersGroup = new THREE.Group();
+        this.clashMarkersGroup.name = "ClashMarkersGroup";
+        this.engine.scene.add(this.clashMarkersGroup);
     }
 
-    focusOnClash(clash) {
-        if (this.cameraManager.isFirstPerson) this.cameraManager.fpControls.unlock();
+    const helper = new THREE.Box3Helper(box3, 0xff0000);
+    
+    const size = new THREE.Vector3();
+    box3.getSize(size);
+    const center = new THREE.Vector3();
+    box3.getCenter(center);
 
-        const targetPos = clash.center;
-        this.cameraManager.orbitControls.target.copy(targetPos);
-        this.engine.camera.position.set(targetPos.x + 4, targetPos.y + 4, targetPos.z + 4);
-        this.cameraManager.orbitControls.update();
+    const geom = new THREE.BoxGeometry(Math.max(size.x, 0.1), Math.max(size.y, 0.1), Math.max(size.z, 0.1));
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.6, depthTest: false });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.copy(center);
 
-        clash.meshA.material.color.set(0xffff00);
-        clash.meshB.material.color.set(0xffff00);
+    this.clashMarkersGroup.add(helper);
+    this.clashMarkersGroup.add(mesh);
+}
+
+clearClashMarkers() {
+    if (this.clashMarkersGroup) {
+        this.engine.scene.remove(this.clashMarkersGroup);
+        this.clashMarkersGroup = null;
     }
+}
+
+enableXRayMode() {
+    const allMeshes = [
+        ...(this.models[1]?.meshes || []),
+        ...(this.models[2]?.meshes || [])
+    ];
+
+    allMeshes.forEach(mesh => {
+        if (!mesh.material) return;
+        
+        if (!mesh.userData.isClashMaterialSet) {
+            mesh.material = Array.isArray(mesh.material) 
+                ? mesh.material.map(m => m.clone()) 
+                : mesh.material.clone();
+            mesh.userData.isClashMaterialSet = true;
+        }
+
+        const applyTrans = (mat) => {
+            mat.transparent = true;
+            mat.opacity = 0.25;
+        };
+
+        if (Array.isArray(mesh.material)) {
+            mesh.material.forEach(applyTrans);
+        } else {
+            applyTrans(mesh.material);
+        }
+    });
+}
+
+buildClashInspectorUI() {
+    const clashList = document.getElementById('clashList');
+    if (!clashList) return;
+
+    clashList.innerHTML = '';
+
+    if (this.detectedClashes.length === 0) {
+        clashList.innerHTML = '<p style="color:#2ecc71; padding:10px;">✓ Няма открити колизии.</p>';
+        return;
+    }
+
+    // Добавяне на глобален бутон "Покажи всички"
+    const showAllBtn = document.createElement('button');
+    showAllBtn.className = 'btn-primary';
+    showAllBtn.style.cssText = 'width: 100%; margin-bottom: 10px; background: #e74c3c; color: white; border: none; padding: 8px; border-radius: 4px; cursor: pointer; font-weight: bold;';
+    showAllBtn.textContent = '👁 Покажи всички колизии наведнъж';
+    showAllBtn.addEventListener('click', () => this.highlightAllClashes());
+    clashList.appendChild(showAllBtn);
+
+    // Изграждане на списъка
+    this.detectedClashes.forEach((clash, index) => {
+        const item = document.createElement('div');
+        item.className = 'clash-item';
+        item.style.cssText = 'padding: 8px; margin: 4px 0; background: rgba(255,255,255,0.08); border-left: 3px solid #e74c3c; cursor: pointer; border-radius: 4px; transition: 0.2s;';
+
+        const nameA = this.getTypeName ? this.getTypeName(clash.itemA.typeCode) : 'Стена/Плоча';
+        const nameB = this.getTypeName ? this.getTypeName(clash.itemB.typeCode) : 'Тръба/Канал';
+        const pos = clash.center;
+
+        item.innerHTML = `
+            <div class="title" style="font-weight:bold; color:#ff6b6b; font-size:13px;">Колизия #${index + 1}</div>
+            <div class="details" style="font-size:11px; color:#ccc; margin-top:2px;">
+                ${nameA} [ID: ${clash.idA}] ↔ ${nameB} [ID: ${clash.idB}]
+            </div>
+            <div style="font-size:10px; color:#aaa; margin-top:2px;">
+                Обем: ${(clash.volume * 1000).toFixed(2)} dm³ | XYZ: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})
+            </div>
+        `;
+
+        item.addEventListener('mouseenter', () => item.style.background = 'rgba(255,255,255,0.2)');
+        item.addEventListener('mouseleave', () => item.style.background = 'rgba(255,255,255,0.08)');
+        item.addEventListener('click', () => this.focusOnClash(clash));
+        clashList.appendChild(item);
+    });
+
+    document.getElementById('clashPanel')?.classList.remove('hidden');
+}
+
+  
+
+     
+  focusOnClash(clash) {
+    if (this.cameraManager && this.cameraManager.isFirstPerson) {
+        this.cameraManager.fpControls.unlock();
+    }
+
+    const targetPos = clash.center.clone();
+    const controls = this.cameraManager?.orbitControls;
+
+    if (controls) {
+        // 1. Изключваме автоматичното сместване и заковаваме фокуса
+        controls.enablePan = false; 
+
+        // 2. Поставяме фокусната точка ТВОЕНО върху центъра на колизията
+        controls.target.set(targetPos.x, targetPos.y, targetPos.z);
+
+        // 3. Наместваме камерата под ъгъл спрямо колизията
+        const offset = 2.0;
+        this.engine.camera.position.set(
+            targetPos.x + offset, 
+            targetPos.y + offset * 0.8, 
+            targetPos.z + offset
+        );
+
+        // 4. Насочваме камерата принудително и обновяваме контролера
+        this.engine.camera.lookAt(targetPos);
+        controls.update();
+    }
+
+    this.enableXRayMode();
+
+    const highlightElement = (item, colorHex) => {
+        const mesh = item.mesh;
+        if (!mesh.material) return;
+        const setMat = (m) => {
+            m.transparent = false;
+            m.opacity = 1.0;
+            m.color?.setHex(colorHex);
+        };
+        if (Array.isArray(mesh.material)) mesh.material.forEach(setMat);
+        else setMat(mesh.material);
+    };
+
+    highlightElement(clash.itemB, 0xffff00);
+
+    if (clash.intersectionBox) {
+        this.clearClashMarkers();
+        this.createClashMarker(clash.intersectionBox);
+    }
+}
+
+highlightAllClashes() {
+    this.enableXRayMode();
+    this.clearClashMarkers();
+
+    const highlightElement = (item, colorHex) => {
+        const mesh = item.mesh;
+        if (!mesh.material) return;
+        const setMat = (m) => {
+            m.transparent = false;
+            m.opacity = 1.0;
+            m.color?.setHex(colorHex);
+        };
+        if (Array.isArray(mesh.material)) mesh.material.forEach(setMat);
+        else setMat(mesh.material);
+    };
+
+    this.detectedClashes.forEach(clash => {
+        highlightElement(clash.itemB, 0xffff00);
+        if (clash.intersectionBox) {
+            this.createClashMarker(clash.intersectionBox);
+        }
+    });
+
+    // Безопасно възстановяване на контролите за цялата сграда
+    const controls = this.cameraManager?.orbitControls;
+    if (controls) {
+        controls.enablePan = true; // Тук вече е вътре в метода и няма да даде грешка
+
+        const buildingBox = new THREE.Box3();
+        if (this.models[1]?.meshes) {
+            this.models[1].meshes.forEach(m => {
+                if (m.geometry?.boundingBox) {
+                    const tempBox = m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld);
+                    buildingBox.union(tempBox);
+                }
+            });
+        }
+        
+        const buildingCenter = new THREE.Vector3();
+        buildingBox.getCenter(buildingCenter);
+
+        controls.target.copy(buildingCenter);
+        controls.update();
+    }
+}
 }
