@@ -16,10 +16,11 @@ export class CameraManager {
         this.GRAVITY = 18.0;
         this.floorRaycaster = new THREE.Raycaster(new THREE.Vector3(), new THREE.Vector3(0, -1, 0), 0, 3.0);
 
-        // Raycasting за кликане върху обекти
         this.selectionRaycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
-        this.onObjectSelected = null; // Callback за BIMDataInspector
+        this.onObjectSelected = null;
+
+        this.isClashFocused = false; // Флаг дали в момента сме фокусирали колизия
 
         this.initControls();
         this.setupFreeZoom();
@@ -63,6 +64,13 @@ export class CameraManager {
     setupFreeZoom() {
         this.engine.renderer.domElement.addEventListener('wheel', (event) => {
             if (this.isFirstPerson) return;
+
+            // Ако сме избрали колизия, НЕ пипаме target-а при скрол, за да може въртенето да остане около нея!
+            if (this.isClashFocused) {
+                return; 
+            }
+
+            // Старото свободно скролване (когато НЕ гледаме колизия):
             const vector = new THREE.Vector3();
             this.engine.camera.getWorldDirection(vector);
             const zoomSpeed = 1.5;
@@ -93,6 +101,7 @@ export class CameraManager {
             const intersects = raycaster.intersectObjects(visibleMeshes);
 
             if (intersects.length > 0) {
+                this.isClashFocused = false; // При десен клик другаде излизаме от фокуса на колизията
                 this.orbitControls.target.copy(intersects[0].point);
                 this.orbitControls.update();
             }
@@ -101,7 +110,6 @@ export class CameraManager {
 
     setupClickSelection() {
         window.addEventListener('click', (event) => {
-            // Игнорираме кликове, докато сме в First-Person или кликаме върху UI панел
             if (this.isFirstPerson || event.target.tagName !== 'CANVAS' || event.target.closest('.panel') || event.target.closest('.info-panel')) return;
 
             this.mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -170,6 +178,28 @@ export class CameraManager {
                 this.fpControls.unlock();
             }
         });
+    }
+
+    // ТОВА Е МЕТОДЪТ ЗА КОЛИЗИИ:
+    focusOn(targetPos, distance = 2.0) {
+        if (this.isFirstPerson) {
+            this.fpControls.unlock();
+        }
+
+        this.isClashFocused = true; // Казваме, че гледаме колизия
+
+        // Фиксираме въртенето В ТОЧКАТА НА КОЛИЗИЯТА
+        this.orbitControls.target.copy(targetPos);
+
+        // Поставяме камерата на удобно разстояние
+        this.engine.camera.position.set(
+            targetPos.x + distance,
+            targetPos.y + distance * 0.7,
+            targetPos.z + distance
+        );
+
+        this.engine.camera.lookAt(targetPos);
+        this.orbitControls.update();
     }
 
     update() {

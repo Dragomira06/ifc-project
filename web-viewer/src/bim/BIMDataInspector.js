@@ -494,99 +494,60 @@ buildClashInspectorUI() {
   
 
      
-  focusOnClash(clash) {
-    if (this.cameraManager && this.cameraManager.isFirstPerson) {
-        this.cameraManager.fpControls.unlock();
-    }
+focusOnClash(clash) {
+        const targetPos = clash.center.clone();
 
-    const targetPos = clash.center.clone();
-    const controls = this.cameraManager?.orbitControls;
+        // Извикваме новия фокус в CameraManager
+        if (this.cameraManager) {
+            this.cameraManager.focusOn(targetPos, 2.5);
+        }
 
-    if (controls) {
-        // 1. Изключваме автоматичното сместване и заковаваме фокуса
-        controls.enablePan = false; 
+        this.enableXRayMode();
 
-        // 2. Поставяме фокусната точка ТВОЕНО върху центъра на колизията
-        controls.target.set(targetPos.x, targetPos.y, targetPos.z);
-
-        // 3. Наместваме камерата под ъгъл спрямо колизията
-        const offset = 2.0;
-        this.engine.camera.position.set(
-            targetPos.x + offset, 
-            targetPos.y + offset * 0.8, 
-            targetPos.z + offset
-        );
-
-        // 4. Насочваме камерата принудително и обновяваме контролера
-        this.engine.camera.lookAt(targetPos);
-        controls.update();
-    }
-
-    this.enableXRayMode();
-
-    const highlightElement = (item, colorHex) => {
-        const mesh = item.mesh;
-        if (!mesh.material) return;
-        const setMat = (m) => {
-            m.transparent = false;
-            m.opacity = 1.0;
-            m.color?.setHex(colorHex);
+        const highlightElement = (item, colorHex) => {
+            const mesh = item.mesh;
+            if (!mesh || !mesh.material) return;
+            const setMat = (m) => {
+                m.transparent = false;
+                m.opacity = 1.0;
+                if (m.color) m.color.setHex(colorHex);
+            };
+            if (Array.isArray(mesh.material)) mesh.material.forEach(setMat);
+            else setMat(mesh.material);
         };
-        if (Array.isArray(mesh.material)) mesh.material.forEach(setMat);
-        else setMat(mesh.material);
-    };
 
-    highlightElement(clash.itemB, 0xffff00);
-
-    if (clash.intersectionBox) {
-        this.clearClashMarkers();
-        this.createClashMarker(clash.intersectionBox);
-    }
-}
-
-highlightAllClashes() {
-    this.enableXRayMode();
-    this.clearClashMarkers();
-
-    const highlightElement = (item, colorHex) => {
-        const mesh = item.mesh;
-        if (!mesh.material) return;
-        const setMat = (m) => {
-            m.transparent = false;
-            m.opacity = 1.0;
-            m.color?.setHex(colorHex);
-        };
-        if (Array.isArray(mesh.material)) mesh.material.forEach(setMat);
-        else setMat(mesh.material);
-    };
-
-    this.detectedClashes.forEach(clash => {
         highlightElement(clash.itemB, 0xffff00);
+
         if (clash.intersectionBox) {
+            this.clearClashMarkers();
             this.createClashMarker(clash.intersectionBox);
         }
-    });
-
-    // Безопасно възстановяване на контролите за цялата сграда
-    const controls = this.cameraManager?.orbitControls;
-    if (controls) {
-        controls.enablePan = true; // Тук вече е вътре в метода и няма да даде грешка
-
-        const buildingBox = new THREE.Box3();
-        if (this.models[1]?.meshes) {
-            this.models[1].meshes.forEach(m => {
-                if (m.geometry?.boundingBox) {
-                    const tempBox = m.geometry.boundingBox.clone().applyMatrix4(m.matrixWorld);
-                    buildingBox.union(tempBox);
-                }
-            });
-        }
-        
-        const buildingCenter = new THREE.Vector3();
-        buildingBox.getCenter(buildingCenter);
-
-        controls.target.copy(buildingCenter);
-        controls.update();
     }
-}
+   highlightAllClashes() {
+        if (this.cameraManager) {
+            this.cameraManager.isClashFocused = false;
+        }
+
+        this.enableXRayMode();
+        this.clearClashMarkers();
+
+        const highlightElement = (item, colorHex) => {
+            const mesh = item.mesh;
+            if (!mesh || !mesh.material) return;
+            const setMat = (m) => {
+                m.transparent = false;
+                m.opacity = 1.0;
+                m.color?.setHex(colorHex);
+            };
+            if (Array.isArray(mesh.material)) mesh.material.forEach(setMat);
+            else setMat(mesh.material);
+        };
+
+        this.detectedClashes.forEach(clash => {
+            highlightElement(clash.itemB, 0xffff00);
+            if (clash.intersectionBox) {
+                this.createClashMarker(clash.intersectionBox);
+            }
+        });
+    }
 }
