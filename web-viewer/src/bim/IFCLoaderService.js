@@ -7,7 +7,7 @@ export class IFCLoaderService {
         this.onModelLoaded = onModelLoaded;
         this.instancedMeshManager = new InstancedMeshManager(engine.scene);
         
-        // Стартираме Worker-а
+        // Стартираме Worker-а правилно като ES Модул
         this.worker = new Worker(new URL('../workers/ifcWorker.js', import.meta.url), { type: 'module' });
         this.initWorkerListener();
     }
@@ -17,6 +17,10 @@ export class IFCLoaderService {
             const { action, parsedGeometries, modelSlot, modelID } = e.data;
 
             if (action === 'IFC_PARSED') {
+                if (!this.models[modelSlot]) {
+                    this.models[modelSlot] = {};
+                }
+                
                 this.models[modelSlot].modelID = modelID;
                 
                 // Изграждаме Instanced Meshes в главната нишка
@@ -26,15 +30,20 @@ export class IFCLoaderService {
                 if (this.onModelLoaded) this.onModelLoaded();
             }
         };
+
+        // Захващане на грешки, ако има такива във Web Worker-а
+        this.worker.onerror = (error) => {
+            console.error("Грешка при обработката в IFC Worker:", error);
+        };
     }
 
     async loadIfcFile(arrayBuffer, slot) {
-        // Изпращаме файла към фоновата нишка (Worker)
+        // Изпращаме файла към фоновата нишка (Worker) чрез Transferable Objects
         this.worker.postMessage({
             action: 'PARSE_IFC',
             arrayBuffer: arrayBuffer,
             modelSlot: slot
-        }, [arrayBuffer]); // Transferable за 0% загуба на време при трансфер
+        }, [arrayBuffer]); 
     }
 
     setupDropZone(zoneId, inputId, slot, onDone) {

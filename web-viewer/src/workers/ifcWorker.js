@@ -24,7 +24,6 @@ self.onmessage = async (e) => {
                 const placed = placedGeometries.get(i);
                 const geomExpressID = placed.geometryExpressID;
 
-                // Ключът съдържа и typeCode, за да групираме правилно
                 const cacheKey = `${typeCode}_${geomExpressID}`;
 
                 if (!geometryMap.has(cacheKey)) {
@@ -34,17 +33,24 @@ self.onmessage = async (e) => {
 
                     const vertCount = rawVerts.length / 6;
                     const positions = new Float32Array(vertCount * 3);
+                    const normals = new Float32Array(vertCount * 3);
 
+                    // Извличаме позиции И нормали директно от WASM паметта
                     for (let j = 0, k = 0; j < rawVerts.length; j += 6, k += 3) {
-                        positions[k] = rawVerts[j];
+                        positions[k]     = rawVerts[j];
                         positions[k + 1] = rawVerts[j + 1];
                         positions[k + 2] = rawVerts[j + 2];
+
+                        normals[k]     = rawVerts[j + 3];
+                        normals[k + 1] = rawVerts[j + 4];
+                        normals[k + 2] = rawVerts[j + 5];
                     }
 
                     geometryMap.set(cacheKey, {
                         geomExpressID,
                         typeCode,
                         positions,
+                        normals,
                         indices: new Uint32Array(rawIndices),
                         instances: []
                     });
@@ -58,6 +64,13 @@ self.onmessage = async (e) => {
         });
 
         const parsedGeometries = Array.from(geometryMap.values());
-        self.postMessage({ action: 'IFC_PARSED', parsedGeometries, modelSlot, modelID });
+        
+        // Прехвърляме буферите чрез Transferable Objects за бързина
+        const transferables = [];
+        parsedGeometries.forEach(g => {
+            transferables.push(g.positions.buffer, g.normals.buffer, g.indices.buffer);
+        });
+
+        self.postMessage({ action: 'IFC_PARSED', parsedGeometries, modelSlot, modelID }, transferables);
     }
 };

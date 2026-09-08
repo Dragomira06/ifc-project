@@ -36,6 +36,7 @@ export class CameraManager {
         this.orbitControls.dampingFactor = 0.05;
         this.orbitControls.minDistance = 0.001;
         this.orbitControls.maxDistance = 1000;
+        this.orbitControls.screenSpacePanning = true;
 
         this.fpControls = new PointerLockControls(this.engine.camera, document.body);
 

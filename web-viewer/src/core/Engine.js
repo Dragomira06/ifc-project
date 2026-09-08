@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+ 
 
 export class Engine {
     constructor(containerId) {
@@ -8,7 +9,7 @@ export class Engine {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x333333);
 
-        // 2. Камера (Връщаме стартовото позициониране на (15, 15, 15))
+        // 2. Камера
         this.camera = new THREE.PerspectiveCamera(
             60, 
             window.innerWidth / window.innerHeight, 
@@ -33,7 +34,9 @@ export class Engine {
 
         this.container.appendChild(this.renderer.domElement);
 
-        // 4. Осветление (Комбинираме стабилното HemisphereLight от стария и DirectionalLight)
+         
+
+        // 5. Осветление
         this.light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
         this.scene.add(this.light);
 
@@ -46,9 +49,12 @@ export class Engine {
         this.dirLight.shadow.mapSize.height = 2048;
         this.scene.add(this.dirLight);
 
-        // 5. Обработка на преоразмеряването на екран
+        // 6. Обработка на преоразмеряването на екран
         window.addEventListener('resize', () => this.onWindowResize());
     }
+
+    
+    
 
     onWindowResize() {
         if (!this.camera || !this.renderer) return;

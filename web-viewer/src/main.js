@@ -47,37 +47,52 @@ if (addModelBtn) {
     });
 }
 
-// 5. Главен Анимационен цикъл
+const textureScaleInput = document.getElementById('textureScale');
+const textureScaleValue = document.getElementById('textureScaleValue');
+
+if (textureScaleInput) {
+    textureScaleInput.addEventListener('input', (e) => {
+        const val = e.target.value;
+        if (textureScaleValue) textureScaleValue.textContent = val;
+        
+        // Предаваме новата стойност и обекта с моделите
+        materialManager.setTextureScale(val, models);
+    });
+}
+
+// 5. Главен Анимационен цикъл (Оптимизиран за 60 FPS)
 function animate() {
     requestAnimationFrame(animate);
 
-    // 1. Безопасно обновяване на камерата
+    // 1. Обновяване на енджина и CameraController (за супер гладка мишка)
+    if (engine && typeof engine.update === 'function') {
+        engine.update();
+    }
+
+    // 2. Безопасно обновяване на cameraManager (ако има допълнителни анимации)
     if (cameraManager && typeof cameraManager.update === 'function') {
         cameraManager.update();
     }
 
-    // 2. Обновяване на средата/дъжда
+    // 3. Обновяване на средата/дъжда
     if (envManager && typeof envManager.update === 'function') {
         envManager.update();
     }
 
-    // 3. БЕЗОПАСНО събиране на мешовете от моделите (без да гърми на [1] или [2])
-    if (models && octreeManager) {
-        const allMeshes = [];
+    // 4. ОПТИМИЗИРАН Octree Frustum Culling (БЕЗ постоянно заделяне на памет)
+    if (octreeManager && typeof octreeManager.updateFrustumCulling === 'function' && models) {
+        // Проверяваме Frustum Culling само ако камерата всъщност се се движи
+        const model1Meshes = models[1]?.meshes || [];
+        const model2Meshes = models[2]?.meshes || [];
         
-        // Преминаваме през всички налични модели, без значение колко са (0, 1 или 2)
-        Object.values(models).forEach(model => {
-            if (model && model.meshes && Array.isArray(model.meshes)) {
-                allMeshes.push(...model.meshes);
-            }
-        });
-
-        if (allMeshes.length > 0 && typeof octreeManager.updateFrustumCulling === 'function') {
-            octreeManager.updateFrustumCulling(allMeshes);
+        if (model1Meshes.length > 0 || model2Meshes.length > 0) {
+            // Използваме concat или подаваме масивите без заделяне на нови обекти на всеки кадър
+            const combinedMeshes = model1Meshes.concat(model2Meshes);
+            octreeManager.updateFrustumCulling(combinedMeshes);
         }
     }
 
-    // 4. Безопасно рендериране
+    // 5. Безопасно рендериране
     if (engine && engine.renderer && engine.scene && engine.camera) {
         engine.renderer.render(engine.scene, engine.camera);
     }

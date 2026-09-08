@@ -47,30 +47,73 @@ export class BIMDataInspector {
         return this.typeNames[typeCode] || `Тип ${typeCode}`;
     }
 
-    setupRenderSwitchButton() {
-        if (!this.materialManager) return;
+     setupRenderSwitchButton() {
+    if (!this.materialManager) return;
 
-        let btn = document.getElementById('renderSwitchBtn');
-        if (!btn) {
-            btn = document.createElement('button');
-            btn.id = 'renderSwitchBtn';
-            btn.innerHTML = '🎨 PBR Реалистичен режим: ИЗКЛ';
-            btn.style.cssText = `
-                position: fixed; top: 12px; right: 20px; z-index: 50;
-                padding: 10px 16px; background: #2c3e50; color: white;
-                border: 1px solid #34495e; border-radius: 6px; cursor: pointer;
-                font-weight: bold; font-size: 13px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-                transition: all 0.3s ease;
-            `;
-            document.body.appendChild(btn);
-        }
-
-        btn.onclick = () => {
-            const isRealistic = this.materialManager.toggleRealisticMode(this.models);
-            btn.innerHTML = isRealistic ? '✨ PBR Реалистичен режим: ВКЛ' : '🎨 PBR Реалистичен режим: ИЗКЛ';
-            btn.style.background = isRealistic ? '#27ae60' : '#2c3e50';
-        };
+    // 1. Създаване/Вземане на бутона за PBR
+    let btn = document.getElementById('renderSwitchBtn');
+    if (!btn) {
+        btn = document.createElement('button');
+        btn.id = 'renderSwitchBtn';
+        btn.innerHTML = '🎨 PBR Реалистичен режим: ИЗКЛ';
+        btn.style.cssText = `
+            position: fixed; top: 12px; right: 20px; z-index: 50;
+            padding: 10px 16px; background: #2c3e50; color: white;
+            border: 1px solid #34495e; border-radius: 6px; cursor: pointer;
+            font-weight: bold; font-size: 13px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
+        `;
+        document.body.appendChild(btn);
     }
+
+    // 2. Динамично създаване на контейнера за слайдера (скалата)
+    let sliderContainer = document.getElementById('pbrScaleContainer');
+    if (!sliderContainer) {
+        sliderContainer = document.createElement('div');
+        sliderContainer.id = 'pbrScaleContainer';
+        sliderContainer.style.cssText = `
+            position: fixed; top: 300px; right: 20px; z-index: 50;
+            padding: 10px 14px; background: rgba(44, 62, 80, 0.95); color: white;
+            border: 1px solid #34495e; border-radius: 6px; font-size: 12px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3); display: none; flex-direction: column; gap: 6px;
+            backdrop-filter: blur(4px); font-family: sans-serif; min-width: 180px;
+        `;
+
+        sliderContainer.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>📐 Мащаб на текстурите:</span>
+                <b id="pbrScaleValue">1.0</b>
+            </div>
+            <input type="range" id="pbrScaleInput" min="0.0001" max="5.0" step="0.0001" value="1.0" style="cursor: pointer; width: 100%;">
+        `;
+        document.body.appendChild(sliderContainer);
+
+        // Слушател за промяна на слайдера
+        const scaleInput = sliderContainer.querySelector('#pbrScaleInput');
+        const scaleValDisplay = sliderContainer.querySelector('#pbrScaleValue');
+
+        scaleInput.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value);
+            scaleValDisplay.textContent = val < 0.01 ? val.toFixed(4) : val.toFixed(2);
+            
+            // Извикваме обновената скала в MaterialManager
+            this.materialManager.setTextureScale(val, this.models);
+        });
+    }
+
+    // 3. Логика при клик на бутона
+    btn.onclick = () => {
+        const isRealistic = this.materialManager.toggleRealisticMode(this.models);
+        
+        btn.innerHTML = isRealistic ? '✨ PBR Реалистичен режим: ВКЛ' : '🎨 PBR Реалистичен режим: ИЗКЛ';
+        btn.style.background = isRealistic ? '#27ae60' : '#2c3e50';
+
+        // Показваме слайдера само когато PBR е ВКЛЮЧЕН
+        if (sliderContainer) {
+            sliderContainer.style.display = isRealistic ? 'flex' : 'none';
+        }
+    };
+}
 
     setupEnvironmentUI() {
     if (!this.envManager) return;
