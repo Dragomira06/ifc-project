@@ -5,6 +5,7 @@ import { BIMDataInspector } from './bim/BIMDataInspector.js';
 import { OctreeManager } from './core/OctreeManager.js';
 import { MaterialManager } from './bim/MaterialManager.js'; // 1. Промяна: Импортираме MaterialManager
 import { EnvironmentManager } from './graphics/EnvironmentManager.js';
+import { SelectionManager } from './editor/SelectionManager.js';
 // Структура за моделите
 const models = {
     1: { modelID: null, meshes: [] },
@@ -17,6 +18,7 @@ const cameraManager = new CameraManager(engine, models);
 const octreeManager = new OctreeManager(engine.camera);
 const materialManager = new MaterialManager(engine); // 2. Промяна: Инициализираме новия MaterialManager
 const envManager = new EnvironmentManager(engine);
+const selectionManager = new SelectionManager(engine, materialManager);
 
 // 2. Инициализиране на Зареждащата услуга
 const ifcLoaderService = new IFCLoaderService(engine, models, () => {
@@ -25,8 +27,11 @@ const ifcLoaderService = new IFCLoaderService(engine, models, () => {
     if (inspector) inspector.buildElementPanel();
 });
 
-// 3. Инициализиране на Инспектора (3. Промяна: Подаваме materialManager като 5-ти аргумент)
-const inspector = new BIMDataInspector(engine, models, ifcLoaderService, cameraManager, materialManager,envManager);
+// 3. Инициализиране на Инспектора
+const inspector = new BIMDataInspector(engine, models, ifcLoaderService, cameraManager, materialManager, envManager);
+
+// Свързваме инспектора със SelectionManager
+selectionManager.setInspector(inspector);
 
 // 4. Настройка на Drop-зоните
 const addModelBtn = document.getElementById('addModelBtn');

@@ -18,9 +18,6 @@ export class MaterialManager {
         this.textureLoader = new THREE.TextureLoader();
         this.textures = {};
 
-        // Глобален мащаб на текстурите (управлява се от UI плъзгача)
-        this.globalScale = 1.0; 
-
         this.loadTextures();
     }
 
@@ -68,34 +65,14 @@ export class MaterialManager {
         return this.isRealisticMode;
     }
 
-    // Метод за промяна на скалата в реално време от UI
-    setTextureScale(newScale, models) {
-        this.globalScale = parseFloat(newScale);
-
-        if (!models) return;
-
-        // При обхождането променяме стойността в GPU шейдърите мигновено
-        Object.keys(models).forEach(slot => {
-            const model = models[slot];
-            if (!model || !model.meshes) return;
-
-            model.meshes.forEach(mesh => {
-                if (mesh.material && mesh.material.userData && mesh.material.userData.uScale) {
-                    const matType = mesh.userData?.materialType;
-                    mesh.material.userData.uScale.value = this.getScaleForType(matType);
-                }
-            });
-        });
-    }
-
+    // Базови съотношения за материалите
     getScaleForType(matType) {
-        const base = this.globalScale || 1.0;
         switch (matType) {
-            case 'stone': return 1.2 * base;
-            case 'wood': return 1.0 * base;
-            case 'plaster': return 1.5 * base;
-            case 'metal': return 2.0 * base;
-            default: return 1.0 * base;
+            case 'stone': return 1.2;
+            case 'wood': return 1.0;
+            case 'plaster': return 1.5;
+            case 'metal': return 2.0;
+            default: return 1.0;
         }
     }
 
@@ -171,6 +148,17 @@ export class MaterialManager {
                     roughness: 0.8
                 });
                 break;
+        }
+
+        if (!newMaterial.userData) {
+            newMaterial.userData = {};
+        }
+
+        // Запазваме съществуващия индивидуален uScale, ако обектът вече е бил мащабиран
+        if (mesh.material && mesh.material.userData && mesh.material.userData.uScale) {
+            if (newMaterial.userData.uScale) {
+                newMaterial.userData.uScale.value = mesh.material.userData.uScale.value;
+            }
         }
 
         mesh.material = newMaterial;

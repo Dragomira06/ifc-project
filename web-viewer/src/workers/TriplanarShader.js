@@ -1,24 +1,23 @@
 import * as THREE from 'three';
 
 export function createTriplanarMaterial(map, normalMap, color = new THREE.Color(0xffffff), options = {}) {
-    // 1. Създаваме Uniform обект за скалата, който може да се променя динамично
-    const scaleUniform = { value: options.scale || 1.0 };
-
     const material = new THREE.MeshStandardMaterial({
         color: color,
         roughness: options.roughness !== undefined ? options.roughness : 0.8,
         metalness: options.metalness !== undefined ? options.metalness : 0.1
     });
 
+    // Создаваме uScale в userData ОЩЕ ТУК, за да съществува от самото начало
+    material.userData = {
+        uScale: { value: options.scale || 1.0 }
+    };
+
     material.onBeforeCompile = (shader) => {
-        // Добавяме uniform променливата
-        shader.uniforms.uScale = scaleUniform;
+        // Използваме същата референция към uScale
+        shader.uniforms.uScale = material.userData.uScale;
         shader.uniforms.uTextureMap = { value: map };
         shader.uniforms.uNormalMap = { value: normalMap };
         shader.uniforms.uNormalScale = { value: options.normalScale || 1.5 };
-
-        // Записваме я в material.userData, за да може MaterialManager да я достъпва
-        material.userData.uScale = scaleUniform;
 
         shader.vertexShader = `
             varying vec3 vWorldPosition;
@@ -44,15 +43,12 @@ export function createTriplanarMaterial(map, normalMap, color = new THREE.Color(
         `.replace(
             '#include <map_fragment>',
             `
-            // Изчисляване на Triplanar Blending тегла въз основа на нормалите
             vec3 blendWeights = abs(vWorldNormal);
             blendWeights = max(blendWeights - 0.2, 0.0);
             blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);
 
-            // Скалиране на световните координати
             vec3 coord = vWorldPosition * uScale;
 
-            // Вземане на текстурата от 3-те прожекции (X, Y, Z)
             vec4 colX = texture2D(uTextureMap, coord.yz);
             vec4 colY = texture2D(uTextureMap, coord.xz);
             vec4 colZ = texture2D(uTextureMap, coord.xy);
@@ -63,7 +59,6 @@ export function createTriplanarMaterial(map, normalMap, color = new THREE.Color(
         ).replace(
             '#include <normal_fragment_maps>',
             `
-            // Triplanar Normal Mapping за релеф
             vec3 nX = texture2D(uNormalMap, coord.yz).xyz * 2.0 - 1.0;
             vec3 nY = texture2D(uNormalMap, coord.xz).xyz * 2.0 - 1.0;
             vec3 nZ = texture2D(uNormalMap, coord.xy).xyz * 2.0 - 1.0;

@@ -65,57 +65,18 @@ export class BIMDataInspector {
         document.body.appendChild(btn);
     }
 
-    let sliderContainer = document.getElementById('pbrScaleContainer');
-    if (!sliderContainer) {
-        sliderContainer = document.createElement('div');
-        sliderContainer.id = 'pbrScaleContainer';
-        sliderContainer.style.cssText = `
-            position: fixed; top: 300px; right: 20px; z-index: 50;
-            padding: 10px 14px; background: rgba(44, 62, 80, 0.95); color: white;
-            border: 1px solid #34495e; border-radius: 6px; font-size: 12px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3); display: none; flex-direction: column; gap: 6px;
-            backdrop-filter: blur(4px); font-family: sans-serif; min-width: 200px;
-        `;
-
-        // Мин -5 (което значи 10^-5 = 0.00001) до Макс 0.7 (което значи 10^0.7 = ~5.0)
-        sliderContainer.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>📐 Мащаб на текстурите:</span>
-                <b id="pbrScaleValue">0.0001</b>
-            </div>
-            <input type="range" id="pbrScaleInput" min="-5" max="0.7" step="0.01" value="-4" style="cursor: pointer; width: 100%;">
-        `;
-        document.body.appendChild(sliderContainer);
-
-        const scaleInput = sliderContainer.querySelector('#pbrScaleInput');
-        const scaleValDisplay = sliderContainer.querySelector('#pbrScaleValue');
-
-        scaleInput.addEventListener('input', (e) => {
-            // Превръщаме експоненциално: 10^value
-            const expValue = Math.pow(10, parseFloat(e.target.value));
-            
-            // Форматираме текста според това колко е малка стойността
-            if (expValue < 0.001) {
-                scaleValDisplay.textContent = expValue.toFixed(5);
-            } else if (expValue < 0.1) {
-                scaleValDisplay.textContent = expValue.toFixed(4);
-            } else {
-                scaleValDisplay.textContent = expValue.toFixed(2);
-            }
-            
-            this.materialManager.setTextureScale(expValue, this.models);
-        });
+    // Ако случайно в DOM дървото вече съществува стар контейнер, го премахваме
+    const oldSlider = document.getElementById('pbrScaleContainer');
+    if (oldSlider) {
+        oldSlider.remove();
     }
 
     btn.onclick = () => {
         const isRealistic = this.materialManager.toggleRealisticMode(this.models);
         btn.innerHTML = isRealistic ? '✨ PBR Реалистичен режим: ВКЛ' : '🎨 PBR Реалистичен режим: ИЗКЛ';
         btn.style.background = isRealistic ? '#27ae60' : '#2c3e50';
-
-        if (sliderContainer) {
-            sliderContainer.style.display = isRealistic ? 'flex' : 'none';
-        }
     };
+
 } 
 
     setupEnvironmentUI() {
