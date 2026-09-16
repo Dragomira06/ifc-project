@@ -5,131 +5,262 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BIM IFC Viewer</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        body { margin: 0; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #0a1128; }
         #app { width: 100vw; height: 100vh; }
         
-        /* Drop Zones */
-        .dropZone {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(20,20,20,0.95);
-            display: flex; flex-direction: column;
-            align-items: center; justify-content: center;
-            color: white; z-index: 100;
-            border: 4px dashed #666;
-            transition: all 0.2s ease;
-        }
-        .dropZone.dragover { border-color: #4a9eff; background: rgba(20,20,50,0.95); }
-        .dropZone h2 { font-size: 24px; margin-bottom: 10px; }
-        .dropZone p { color: #aaa; }
         .fileInput { display: none; }
         .hidden { display: none !important; }
 
-        /* Action Buttons */
+        /* --- АНИМАЦИИ --- */
+        @keyframes pulseGlow {
+            0% { box-shadow: 0 0 15px rgba(0, 119, 182, 0.3); border-color: rgba(0, 119, 182, 0.5); }
+            50% { box-shadow: 0 0 30px rgba(144, 224, 239, 0.6); border-color: rgba(144, 224, 239, 0.9); }
+            100% { box-shadow: 0 0 15px rgba(0, 119, 182, 0.3); border-color: rgba(0, 119, 182, 0.5); }
+        }
+
+        @keyframes floatIcon {
+            0% { transform: translateY(0px) scale(1); }
+            50% { transform: translateY(-10px) scale(1.05); }
+            100% { transform: translateY(0px) scale(1); }
+        }
+
+        @keyframes statusPulse {
+            0% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(1.2); }
+            100% { opacity: 1; transform: scale(1); }
+        }
+
+        /* --- СТИЛОВЕ ЗА NAV BAR И БУТОНИ --- */
+        .nav-btn {
+            padding: 12px 20px;
+            background: rgba(0, 31, 63, 0.6);
+            border: 1px solid rgba(0, 119, 182, 0.5);
+            border-radius: 10px;
+            color: #e0f7fa;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(8px);
+        }
+
+        .nav-btn:hover {
+            background: rgba(0, 119, 182, 0.8);
+            border-color: #90e0ef;
+            color: #ffffff;
+            box-shadow: 0 0 20px rgba(144, 224, 239, 0.6);
+            transform: translateY(-2px);
+        }
+
+        /* --- ACTION BUTTONS (Вътрешни) --- */
         .btn-panel {
-            position: fixed; top: 10px; left: 10px;
-            display: flex; flex-direction: column; gap: 8px;
+            position: fixed; top: 95px; left: 20px;
+            display: flex; flex-direction: column; gap: 10px;
             z-index: 50;
         }
         .btn {
-            padding: 10px 16px; color: white;
-            border: none; border-radius: 6px; cursor: pointer;
-            font-family: inherit; font-size: 14px; font-weight: 600;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-            transition: background 0.2s;
+            padding: 12px 20px; color: white;
+            border: none; border-radius: 8px; cursor: pointer;
+            font-family: inherit; font-size: 13px; font-weight: 600;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+            transition: all 0.3s ease; backdrop-filter: blur(8px);
         }
-        #addModelBtn { background: #4a9eff; }
-        #clashBtn { background: #e74c3c; }
-        .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+        #addModelBtn { background: #0077b6; border: 1px solid #90e0ef; }
+        #clashBtn { background: #c0392b; border: 1px solid #e74c3c; }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 0 15px rgba(144,224,239,0.5); }
 
-        /* Side Panels */
+        /* --- СТРАНИЧНИ ПАНЕЛИ --- */
         .panel {
             position: fixed;
-            background: rgba(20, 20, 20, 0.9); color: white;
-            padding: 14px; border-radius: 8px;
+            background: rgba(10, 17, 40, 0.92); color: white;
+            padding: 16px; border-radius: 12px;
             font-size: 13px; max-height: 75vh; overflow-y: auto;
-            backdrop-filter: blur(4px);
-            border: 1px solid rgba(255,255,255,0.1);
-            box-shadow: 0 8px 16px rgba(0,0,0,0.4);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(0, 119, 182, 0.4);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
             z-index: 40;
         }
 
-        /* Element Panel (Right Side) */
-        #elementPanel { top: 10px; right: 10px; width: 260px; }
-        #elementPanel h3 { margin: 0 0 10px 0; font-size: 15px; border-bottom: 1px solid #444; padding-bottom: 6px; }
+        #elementPanel { top: 95px; right: 20px; width: 270px; }
+        #elementPanel h3 { margin: 0 0 12px 0; font-size: 15px; color: #90e0ef; border-bottom: 1px solid rgba(0, 119, 182, 0.4); padding-bottom: 6px; }
         
-        .panel-actions { display: flex; gap: 6px; margin-bottom: 10px; }
+        .panel-actions { display: flex; gap: 8px; margin-bottom: 12px; }
         .btn-small {
-            padding: 4px 8px; font-size: 11px; background: #444; border: none; color: #fff;
-            border-radius: 4px; cursor: pointer;
+            padding: 6px 12px; font-size: 11px; background: rgba(0, 31, 63, 0.8); border: 1px solid rgba(0, 119, 182, 0.5); color: #90e0ef;
+            border-radius: 6px; cursor: pointer; transition: all 0.2s;
         }
-        .btn-small:hover { background: #666; }
+        .btn-small:hover { background: #0077b6; color: white; box-shadow: 0 0 10px rgba(144, 224, 239, 0.5); }
 
-        /* Clash Panel (Left Bottom) */
-        #clashPanel { bottom: 20px; left: 10px; width: 320px; max-height: 350px; }
-        #clashPanel h3 { margin: 0 0 10px 0; font-size: 15px; color: #ff6b6b; border-bottom: 1px solid #444; padding-bottom: 6px; }
-        
-        .clash-item {
-            padding: 8px; margin: 4px 0; background: rgba(255,255,255,0.05);
-            border-radius: 4px; cursor: pointer; border-left: 3px solid #e74c3c;
-            transition: background 0.2s;
+        /* --- ДЕМО МОДАЛЕН ПРОЗОРЕЦ --- */
+        .demo-card {
+            background: rgba(0, 31, 63, 0.6);
+            border: 1px solid rgba(0, 119, 182, 0.5);
+            border-radius: 14px;
+            padding: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: all 0.3s ease;
         }
-        .clash-item:hover { background: rgba(255,255,255,0.15); }
-        .clash-item .title { font-weight: bold; font-size: 12px; color: #fff; }
-        .clash-item .details { font-size: 11px; color: #aaa; margin-top: 2px; }
+        .demo-card:hover {
+            background: rgba(0, 119, 182, 0.7);
+            border-color: #90e0ef;
+            transform: translateY(-2px);
+            box-shadow: 0 0 20px rgba(144, 224, 239, 0.4);
+        }
 
-        /* Scrollbar styling */
         ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
-        ::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+        ::-webkit-scrollbar-track { background: rgba(10, 17, 40, 0.5); }
+        ::-webkit-scrollbar-thumb { background: #004080; border-radius: 3px; }
     </style>
 </head>
 <body>
     <div id="app"></div>
 
-    <!-- Drop zones -->
-    <div id="dropZone1" class="dropZone">
-        <h2>Качете основен модел</h2>
-        <p>Плъзнете IFC файл тук или кликнете (напр. архитектура)</p>
-        <input type="file" id="fileInput1" class="fileInput" accept=".ifc">
+    <!-- LANDING SCREEN -->
+    <div id="landingScreen" style="
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        z-index: 9999; background: radial-gradient(circle at center, #001f3f 0%, #0a1128 100%);
+        display: flex; flex-direction: column; justify-content: space-between;
+        font-family: 'Segoe UI', Roboto, sans-serif; color: white; box-sizing: border-box;">
+        
+        <!-- Top Navigation Bar -->
+        <header style="
+            display: flex; justify-content: space-between; align-items: center; 
+            padding: 18px 45px; background: rgba(10, 17, 40, 0.85); 
+            backdrop-filter: blur(15px); border-bottom: 1px solid rgba(0, 119, 182, 0.3);
+            box-shadow: 0 4px 25px rgba(0,0,0,0.5);">
+            
+            <div style="display: flex; align-items: center; gap: 16px;">
+                <div style="
+                    width: 48px; height: 48px; background: linear-gradient(135deg, #0077b6, #90e0ef); 
+                    border-radius: 12px; display: flex; align-items: center; justify-content: center; 
+                    font-size: 26px; box-shadow: 0 0 20px rgba(144,224,239,0.4);">
+                    🏗️
+                </div>
+                <div>
+                    <div style="font-size: 22px; font-weight: 800; letter-spacing: 0.8px; color: #ffffff;">
+                        BIM IFC <span style="color: #90e0ef; text-shadow: 0 0 10px rgba(144,224,239,0.5);">VIEWER</span>
+                    </div>
+                    <div style="font-size: 12px; color: #4ea8de; font-weight: 500;">Професионална 3D BIM Платформа</div>
+                </div>
+            </div>
+
+            <div style="display: flex; align-items: center; gap: 20px;">
+                <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,31,63,0.5); padding: 8px 14px; border-radius: 20px; border: 1px solid rgba(0,119,182,0.3);">
+                    <div style="width: 10px; height: 10px; background: #2ecc71; border-radius: 50%; animation: statusPulse 2s infinite;"></div>
+                    <span style="font-size: 12px; color: #a5d6a7; font-weight: 600;">Системата е готова</span>
+                </div>
+
+                <button id="navOpenBtn" class="nav-btn">📂 Зареди проект</button>
+                <button id="navHelpBtn" class="nav-btn">❓ Помощ / Инструкции</button>
+            </div>
+        </header>
+
+        <!-- Drop Zone & Demo Button -->
+        <main style="display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; padding: 20px;">
+            <div id="dropCard1" style="
+                background: rgba(0, 31, 63, 0.4); 
+                border: 2px dashed rgba(0, 119, 182, 0.6); 
+                border-radius: 24px; padding: 45px 55px; text-align: center; 
+                max-width: 500px; width: 100%; backdrop-filter: blur(20px); 
+                box-shadow: 0 20px 50px rgba(0,0,0,0.6); 
+                animation: pulseGlow 4s infinite; transition: all 0.4s ease; cursor: pointer;">
+                
+                <div style="font-size: 60px; margin-bottom: 15px; animation: floatIcon 3s ease-in-out infinite; filter: drop-shadow(0 0 15px rgba(144,224,239,0.5));">
+                    📦
+                </div>
+
+                <h2 style="margin: 0 0 10px 0; font-size: 24px; font-weight: 700; color: #ffffff;">Качете основен IFC модел</h2>
+                <p style="margin: 0 0 25px 0; color: #90e0ef; font-size: 14px; line-height: 1.5; opacity: 0.9;">
+                    Плъзнете вашия <b>.ifc</b> файл тук или кликнете за избор
+                </p>
+
+                <input type="file" id="fileInput1" class="fileInput" accept=".ifc">
+
+                <button id="browseBtn1" style="
+                    padding: 14px 32px; background: linear-gradient(135deg, #0077b6, #00b4d8); 
+                    border: none; border-radius: 12px; color: #ffffff; font-weight: 700; 
+                    font-size: 15px; cursor: pointer; box-shadow: 0 0 20px rgba(0,180,216,0.5); 
+                    transition: all 0.3s ease;">
+                    Изберете Файл
+                </button>
+            </div>
+
+            <!-- БУТОН ЗА ДЕМО СЦЕНА -->
+            <div style="margin-top: 25px;">
+                <button id="demoBtn" style="
+                    padding: 12px 28px; background: rgba(0, 119, 182, 0.25); 
+                    border: 1px solid #90e0ef; border-radius: 30px; color: #90e0ef; 
+                    font-size: 14px; font-weight: 700; cursor: pointer; 
+                    backdrop-filter: blur(10px); transition: all 0.3s ease; 
+                    display: flex; align-items: center; gap: 10px;
+                    box-shadow: 0 0 15px rgba(144, 224, 239, 0.2);">
+                    🚀 Изберете Демо Проект
+                </button>
+            </div>
+        </main>
+
+        <footer style="padding: 18px 45px; text-align: center; font-size: 12px; color: #4ea8de; border-top: 1px solid rgba(0, 119, 182, 0.2); background: rgba(10,17,40,0.6);">
+            Поддържани формати: IFC2x3, IFC4 • High-Performance WebGL Engine
+        </footer>
     </div>
 
-    <div id="dropZone2" class="dropZone hidden">
-        <h2>Качете втори модел</h2>
-        <p>Плъзнете IFC файл тук или кликнете (напр. инсталации)</p>
-        <input type="file" id="fileInput2" class="fileInput" accept=".ifc">
-    </div>
+    <!-- МОДАЛЕН ПРОЗОРЕЦ ЗА ИЗБОР НА ДЕМО ПРОЕКТИ -->
+    <div id="demoModal" class="hidden" style="
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        background: rgba(10, 17, 40, 0.85); backdrop-filter: blur(15px);
+        z-index: 10000; display: flex; align-items: center; justify-content: center;">
+        
+        <div style="
+            background: #0a1128; border: 1px solid #0077b6; border-radius: 20px;
+            padding: 30px; width: 450px; max-width: 90%; box-shadow: 0 0 40px rgba(0, 119, 182, 0.4); text-align: left;">
+            
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h3 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 700;">Изберете Демо Модел</h3>
+                <button id="closeDemoModal" style="background: none; border: none; color: #90e0ef; font-size: 20px; cursor: pointer;">✕</button>
+            </div>
 
-     <!-- Action Buttons Panel -->
-    <div class="btn-panel">
-        <button id="addModelBtn" class="btn hidden">+ Добави втори модел</button>
-        <button id="clashBtn" class="btn hidden">Провери за колизии</button>
-        <button id="navModeBtn" class="btn" style="background: #27ae60;">🚶 Влез вътре (First-Person)</button>
-    </div>
+            <div style="display: flex; flex-direction: column; gap: 12px;">
+                <!-- ДЕМО ПРОЕКТ 1 -->
+                <div class="demo-card" data-url="/demo/house.ifc">
+                    <div>
+                        <div style="font-weight: 700; color: #ffffff;">🏡 Двуетажна Къща</div>
+                        <div style="font-size: 12px; color: #90e0ef; margin-top: 2px;">Архитектурен модел (IFC4)</div>
+                    </div>
+                    <span style="color: #90e0ef; font-weight: bold;">Зареди ➔</span>
+                </div>
 
-    <!-- Instructions Overlay for First-Person -->
-    <div id="fpInstructions" class="hidden" style="
-        position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-        background: rgba(0,0,0,0.8); color: white; padding: 10px 20px; border-radius: 20px;
-        font-size: 13px; pointer-events: none; z-index: 60; border: 1px solid #555;">
-        Ходене: <b>W, A, S, D</b> | Завъртане: <b>Мишка</b> | Изход: <b>ESC</b>
-    </div>
+                <!-- ДЕМО ПРОЕКТ 2 -->
+                <div class="demo-card" data-url="/demo/office.ifc">
+                    <div>
+                        <div style="font-weight: 700; color: #ffffff;">🏢 Офис Сграда</div>
+                        <div style="font-size: 12px; color: #90e0ef; margin-top: 2px;">Конструкция и фасада</div>
+                    </div>
+                    <span style="color: #90e0ef; font-weight: bold;">Зареди ➔</span>
+                </div>
 
-    <!-- Elements Panel -->
-    <div id="elementPanel" class="panel hidden">
-        <h3>Елементи в модела</h3>
-        <div class="panel-actions">
-            <button id="showAllBtn" class="btn-small">Покажи всички</button>
-            <button id="hideAllBtn" class="btn-small">Скрий всички</button>
+                <!-- ДЕМО ПРОЕКТ 3 -->
+                <div class="demo-card" data-url="/demo/structure.ifc">
+                    <div>
+                        <div style="font-weight: 700; color: #ffffff;">🏗️ Стоманена Конструкция</div>
+                        <div style="font-size: 12px; color: #90e0ef; margin-top: 2px;">Конструктивен IFC модел</div>
+                    </div>
+                    <span style="color: #90e0ef; font-weight: bold;">Зареди ➔</span>
+                </div>
+            </div>
+
+            <div id="demoLoading" class="hidden" style="margin-top: 20px; text-align: center; color: #90e0ef; font-weight: 600;">
+                ⏳ Зареждане на демо модел, моля изчакайте...
+            </div>
         </div>
-        <div id="elementList"></div>
     </div>
 
-    <!-- Clash Inspector Panel -->
-    <div id="clashPanel" class="panel hidden">
-        <h3>Списък на колизиите (<span id="clashCount">0</span>)</h3>
-        <div id="clashList"></div>
-    </div>
-
-     <script type="module" src="/src/main.js"></script>
+    
+    <script type="module" src="/src/main.js"></script>
 </body>
 </html>

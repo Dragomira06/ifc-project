@@ -36,6 +36,7 @@ export class BIMDataInspector {
             [WebIFC.IFCFLOWSEGMENT]: 'Тръба / Канал'
         };
 
+        this.setupCoreUI(); // Динамично създаване на UI бутоните
         this.initInfoPanel();
         this.setupClickSelection();
         this.setupClashDetection();
@@ -47,92 +48,182 @@ export class BIMDataInspector {
         return this.typeNames[typeCode] || `Тип ${typeCode}`;
     }
 
-   setupRenderSwitchButton() {
-    if (!this.materialManager) return;
+    setupCoreUI() {
+        // 1. Скрит Input за качване на втори файл
+        let fileInput2 = document.getElementById('fileInput2');
+        if (!fileInput2) {
+            fileInput2 = document.createElement('input');
+            fileInput2.type = 'file';
+            fileInput2.id = 'fileInput2';
+            fileInput2.className = 'fileInput hidden';
+            fileInput2.accept = '.ifc';
+            document.body.appendChild(fileInput2);
+        }
 
-    let btn = document.getElementById('renderSwitchBtn');
-    if (!btn) {
-        btn = document.createElement('button');
-        btn.id = 'renderSwitchBtn';
-        btn.innerHTML = '🎨 PBR Реалистичен режим: ИЗКЛ';
-        btn.style.cssText = `
-            position: fixed; top: 12px; right: 20px; z-index: 50;
-            padding: 10px 16px; background: #2c3e50; color: white;
-            border: 1px solid #34495e; border-radius: 6px; cursor: pointer;
-            font-weight: bold; font-size: 13px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            transition: all 0.3s ease;
-        `;
-        document.body.appendChild(btn);
+        fileInput2.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (file && this.ifcLoaderService) {
+                const buffer = await file.arrayBuffer();
+                await this.ifcLoaderService.loadIfcFile(buffer, 2);
+                this.buildElementPanel();
+            }
+        });
+
+        // 2. Главен панел с бутони
+        let btnPanel = document.querySelector('.btn-panel');
+        if (!btnPanel) {
+            btnPanel = document.createElement('div');
+            btnPanel.className = 'btn-panel';
+            btnPanel.innerHTML = `
+                <button id="addModelBtn" class="btn">+ Добави втори модел</button>
+                <button id="clashBtn" class="btn">Провери за колизии</button>
+                <button id="navModeBtn" class="btn" style="background: #0077b6; border: 1px solid #90e0ef;">🚶 Влез вътре (First-Person)</button>
+            `;
+            document.body.appendChild(btnPanel);
+        }
+
+        // Закачане на събития към бутоните
+        document.getElementById('addModelBtn')?.addEventListener('click', () => fileInput2.click());
+        
+        document.getElementById('navModeBtn')?.addEventListener('click', () => {
+            if (this.cameraManager && this.cameraManager.toggleFirstPersonMode) {
+                const isFP = this.cameraManager.toggleFirstPersonMode();
+                const fpInstructions = document.getElementById('fpInstructions');
+                if (fpInstructions) {
+                    fpInstructions.classList.toggle('hidden', !isFP);
+                }
+            }
+        });
+
+        // 3. Инструкции за FP режим
+        let fpInstructions = document.getElementById('fpInstructions');
+        if (!fpInstructions) {
+            fpInstructions = document.createElement('div');
+            fpInstructions.id = 'fpInstructions';
+            fpInstructions.className = 'hidden';
+            fpInstructions.style.cssText = `
+                position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+                background: rgba(10,17,40,0.9); color: white; padding: 12px 24px; border-radius: 20px;
+                font-size: 13px; pointer-events: none; z-index: 60; border: 1px solid #0077b6; box-shadow: 0 0 15px rgba(0,0,0,0.8);
+            `;
+            fpInstructions.innerHTML = 'Ходене: <b>W, A, S, D</b> | Завъртане: <b>Мишка</b> | Изход: <b>ESC</b>';
+            document.body.appendChild(fpInstructions);
+        }
+
+        // 4. Панел с елементи
+        let elementPanel = document.getElementById('elementPanel');
+        if (!elementPanel) {
+            elementPanel = document.createElement('div');
+            elementPanel.id = 'elementPanel';
+            elementPanel.className = 'panel hidden';
+            elementPanel.innerHTML = `
+                <h3>Елементи в модела</h3>
+                <div class="panel-actions">
+                    <button id="showAllBtn" class="btn-small">Покажи всички</button>
+                    <button id="hideAllBtn" class="btn-small">Скрий всички</button>
+                </div>
+                <div id="elementList"></div>
+            `;
+            document.body.appendChild(elementPanel);
+        }
+
+        // 5. Панел с колизии
+        let clashPanel = document.getElementById('clashPanel');
+        if (!clashPanel) {
+            clashPanel = document.createElement('div');
+            clashPanel.id = 'clashPanel';
+            clashPanel.className = 'panel hidden';
+            clashPanel.style.bottom = '20px';
+            clashPanel.style.left = '20px';
+            clashPanel.innerHTML = `
+                <h3>Списък на колизиите (<span id="clashCount">0</span>)</h3>
+                <div id="clashList"></div>
+            `;
+            document.body.appendChild(clashPanel);
+        }
     }
 
-    // Ако случайно в DOM дървото вече съществува стар контейнер, го премахваме
-    const oldSlider = document.getElementById('pbrScaleContainer');
-    if (oldSlider) {
-        oldSlider.remove();
-    }
+    setupRenderSwitchButton() {
+        if (!this.materialManager) return;
 
-    btn.onclick = () => {
-        const isRealistic = this.materialManager.toggleRealisticMode(this.models);
-        btn.innerHTML = isRealistic ? '✨ PBR Реалистичен режим: ВКЛ' : '🎨 PBR Реалистичен режим: ИЗКЛ';
-        btn.style.background = isRealistic ? '#27ae60' : '#2c3e50';
-    };
+        let btn = document.getElementById('renderSwitchBtn');
+        if (!btn) {
+            btn = document.createElement('button');
+            btn.id = 'renderSwitchBtn';
+            btn.innerHTML = '🎨 PBR Реалистичен режим: ИЗКЛ';
+            btn.style.cssText = `
+                position: fixed; top: 12px; right: 20px; z-index: 50;
+                padding: 10px 16px; background: #2c3e50; color: white;
+                border: 1px solid #34495e; border-radius: 6px; cursor: pointer;
+                font-weight: bold; font-size: 13px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+                transition: all 0.3s ease;
+            `;
+            document.body.appendChild(btn);
+        }
 
-} 
+        const oldSlider = document.getElementById('pbrScaleContainer');
+        if (oldSlider) oldSlider.remove();
+
+        btn.onclick = () => {
+            const isRealistic = this.materialManager.toggleRealisticMode(this.models);
+            btn.innerHTML = isRealistic ? '✨ PBR Реалистичен режим: ВКЛ' : '🎨 PBR Реалистичен режим: ИЗКЛ';
+            btn.style.background = isRealistic ? '#27ae60' : '#2c3e50';
+        };
+    } 
 
     setupEnvironmentUI() {
-    if (!this.envManager) return;
+        if (!this.envManager) return;
 
-    let panel = document.getElementById('envPanelUI');
-    if (!panel) {
-        panel = document.createElement('div');
-        panel.id = 'envPanelUI';
-        panel.style.cssText = `
-            position: fixed; top: 60px; right: 20px; z-index: 50;
-            background: rgba(20, 25, 35, 0.9); color: white;
-            padding: 12px 16px; border-radius: 8px; width: 220px;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            box-shadow: 0 4px 15px rgba(0,0,0,0.4); font-size: 12px;
-        `;
+        let panel = document.getElementById('envPanelUI');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'envPanelUI';
+            panel.style.cssText = `
+                position: fixed; top: 60px; right: 20px; z-index: 50;
+                background: rgba(20, 25, 35, 0.9); color: white;
+                padding: 12px 16px; border-radius: 8px; width: 220px;
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                box-shadow: 0 4px 15px rgba(0,0,0,0.4); font-size: 12px;
+            `;
 
-        panel.innerHTML = `
-            <div style="font-weight:bold; margin-bottom:8px; font-size:13px; color:#4a90e2; border-bottom:1px solid #333; padding-bottom:4px;">
-                🌅 Атмосфера & Осветление
-            </div>
+            panel.innerHTML = `
+                <div style="font-weight:bold; margin-bottom:8px; font-size:13px; color:#4a90e2; border-bottom:1px solid #333; padding-bottom:4px;">
+                    🌅 Атмосфера & Осветление
+                </div>
 
-            <div style="margin-bottom:8px;">
-                <label style="display:block; margin-bottom:4px; color:#ccc;">Режим:</label>
-                <select id="envSelectUI" style="width:100%; padding:5px; background:#111; color:white; border:1px solid #444; border-radius:4px; outline:none; cursor:pointer;">
-                    <option value="day">☀️ Дневен режим</option>
-                    <option value="night">🌙 Нощен режим</option>
-                </select>
-            </div>
+                <div style="margin-bottom:8px;">
+                    <label style="display:block; margin-bottom:4px; color:#ccc;">Режим:</label>
+                    <select id="envSelectUI" style="width:100%; padding:5px; background:#111; color:white; border:1px solid #444; border-radius:4px; outline:none; cursor:pointer;">
+                        <option value="day">☀️ Дневен режим</option>
+                        <option value="night">🌙 Нощен режим</option>
+                    </select>
+                </div>
 
-            <div style="margin-bottom:8px;">
-                <label style="display:block; margin-bottom:2px; color:#ccc;">Позиция на слънцето:</label>
-                <input type="range" id="sunRotUI" min="0" max="360" value="0" style="width:100%; cursor:pointer;">
-            </div>
+                <div style="margin-bottom:8px;">
+                    <label style="display:block; margin-bottom:2px; color:#ccc;">Позиция на слънцето:</label>
+                    <input type="range" id="sunRotUI" min="0" max="360" value="0" style="width:100%; cursor:pointer;">
+                </div>
 
-            <div>
-                <label style="display:block; margin-bottom:2px; color:#ccc;">Яркост (Експозиция):</label>
-                <input type="range" id="exposureUI" min="0.2" max="2.5" step="0.1" value="1.0" style="width:100%; cursor:pointer;">
-            </div>
-        `;
-        document.body.appendChild(panel);
-    }
+                <div>
+                    <label style="display:block; margin-bottom:2px; color:#ccc;">Яркост (Експозиция):</label>
+                    <input type="range" id="exposureUI" min="0.2" max="2.5" step="0.1" value="1.0" style="width:100%; cursor:pointer;">
+                </div>
+            `;
+            document.body.appendChild(panel);
+        }
 
-    // Слушатели за промени от менюто
-    document.getElementById('envSelectUI')?.addEventListener('change', (e) => {
-        this.envManager.setEnvironment(e.target.value);
-    });
+        document.getElementById('envSelectUI')?.addEventListener('change', (e) => {
+            this.envManager.setEnvironment(e.target.value);
+        });
 
-    document.getElementById('sunRotUI')?.addEventListener('input', (e) => {
-        this.envManager.setSunRotation(parseFloat(e.target.value));
-    });
+        document.getElementById('sunRotUI')?.addEventListener('input', (e) => {
+            this.envManager.setSunRotation(parseFloat(e.target.value));
+        });
 
-    document.getElementById('exposureUI')?.addEventListener('input', (e) => {
-        this.envManager.setLightIntensity(parseFloat(e.target.value));
-    });
- } 
+        document.getElementById('exposureUI')?.addEventListener('input', (e) => {
+            this.envManager.setLightIntensity(parseFloat(e.target.value));
+        });
+    } 
 
     initInfoPanel() {
         let panel = document.getElementById('infoPanel');
@@ -141,7 +232,7 @@ export class BIMDataInspector {
             panel.id = 'infoPanel';
             panel.className = 'info-panel';
             panel.style.cssText = `
-                position: fixed; top: 10px; left: 220px;
+                position: fixed; top: 10px; left: 450px;
                 background: rgba(0,0,0,0.85); color: white;
                 padding: 12px; border-radius: 6px;
                 font-size: 13px; width: 280px; display: none; z-index: 40;
@@ -300,211 +391,205 @@ export class BIMDataInspector {
         });
     }
 
-     setupClashDetection() {
-    const clashBtn = document.getElementById('clashBtn');
-    clashBtn?.addEventListener('click', () => {
-        this.clearClashMarkers();
-        this.detectedClashes = [];
-        
-        const clashList = document.getElementById('clashList');
-        if (clashList) clashList.innerHTML = '';
+    setupClashDetection() {
+        const clashBtn = document.getElementById('clashBtn');
+        clashBtn?.addEventListener('click', () => {
+            this.clearClashMarkers();
+            this.detectedClashes = [];
+            
+            const clashList = document.getElementById('clashList');
+            if (clashList) clashList.innerHTML = '';
 
-        const extractInstanceBoxes = (meshes, typeFilter) => {
-            const boxes = [];
-            const tempMatrix = new THREE.Matrix4();
-            const tempBox = new THREE.Box3();
+            const extractInstanceBoxes = (meshes, typeFilter) => {
+                const boxes = [];
+                const tempMatrix = new THREE.Matrix4();
+                const tempBox = new THREE.Box3();
 
-            meshes.forEach(mesh => {
-                if (!mesh.userData || !mesh.visible) return;
-                if (typeFilter && typeFilter.length > 0 && !typeFilter.includes(mesh.userData.typeCode)) return;
-                if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+                meshes.forEach(mesh => {
+                    if (!mesh.userData || !mesh.visible) return;
+                    if (typeFilter && typeFilter.length > 0 && !typeFilter.includes(mesh.userData.typeCode)) return;
+                    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
 
-                if (mesh.isInstancedMesh) {
-                    for (let i = 0; i < mesh.count; i++) {
-                        mesh.getMatrixAt(i, tempMatrix);
-                        const worldMatrix = tempMatrix.premultiply(mesh.matrixWorld);
-                        tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(worldMatrix);
+                    if (mesh.isInstancedMesh) {
+                        for (let i = 0; i < mesh.count; i++) {
+                            mesh.getMatrixAt(i, tempMatrix);
+                            const worldMatrix = tempMatrix.premultiply(mesh.matrixWorld);
+                            tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(worldMatrix);
 
-                        const instData = mesh.userData.instancesData ? mesh.userData.instancesData[i] : null;
-                        const expressID = instData ? instData.expressID : mesh.userData.expressID;
+                            const instData = mesh.userData.instancesData ? mesh.userData.instancesData[i] : null;
+                            const expressID = instData ? instData.expressID : mesh.userData.expressID;
 
+                            boxes.push({
+                                mesh,
+                                instanceId: i,
+                                box: tempBox.clone(),
+                                expressID: expressID,
+                                typeCode: mesh.userData.typeCode
+                            });
+                        }
+                    } else {
+                        tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
                         boxes.push({
                             mesh,
-                            instanceId: i,
+                            instanceId: null,
                             box: tempBox.clone(),
-                            expressID: expressID,
+                            expressID: mesh.userData.expressID,
                             typeCode: mesh.userData.typeCode
                         });
                     }
-                } else {
-                    tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
-                    boxes.push({
-                        mesh,
-                        instanceId: null,
-                        box: tempBox.clone(),
-                        expressID: mesh.userData.expressID,
-                        typeCode: mesh.userData.typeCode
-                    });
-                }
-            });
+                });
 
-            return boxes;
-        };
+                return boxes;
+            };
 
-        const structBoxes = extractInstanceBoxes(this.models[1]?.meshes || [], this.structuralTypes);
-        const mepBoxes = extractInstanceBoxes(this.models[2]?.meshes || [], this.mepTypes);
+            const structBoxes = extractInstanceBoxes(this.models[1]?.meshes || [], this.structuralTypes);
+            const mepBoxes = extractInstanceBoxes(this.models[2]?.meshes || [], this.mepTypes);
 
-        const MIN_OVERLAP_VOLUME = 0.00005; 
+            const MIN_OVERLAP_VOLUME = 0.00005; 
 
-        for (const itemA of structBoxes) {
-            for (const itemB of mepBoxes) {
-                if (itemA.mesh === itemB.mesh && itemA.instanceId === itemB.instanceId) continue;
+            for (const itemA of structBoxes) {
+                for (const itemB of mepBoxes) {
+                    if (itemA.mesh === itemB.mesh && itemA.instanceId === itemB.instanceId) continue;
 
-                if (itemA.box.intersectsBox(itemB.box)) {
-                    const intersectionBox = itemA.box.clone().intersect(itemB.box);
-                    const size = new THREE.Vector3();
-                    intersectionBox.getSize(size);
-                    const volume = size.x * size.y * size.z;
+                    if (itemA.box.intersectsBox(itemB.box)) {
+                        const intersectionBox = itemA.box.clone().intersect(itemB.box);
+                        const size = new THREE.Vector3();
+                        intersectionBox.getSize(size);
+                        const volume = size.x * size.y * size.z;
 
-                    if (volume > MIN_OVERLAP_VOLUME) {
-                        const center = new THREE.Vector3();
-                        intersectionBox.getCenter(center);
+                        if (volume > MIN_OVERLAP_VOLUME) {
+                            const center = new THREE.Vector3();
+                            intersectionBox.getCenter(center);
 
-                        this.detectedClashes.push({
-                            itemA, itemB, center, volume,
-                            intersectionBox: intersectionBox.clone(),
-                            idA: itemA.expressID,
-                            idB: itemB.expressID
-                        });
+                            this.detectedClashes.push({
+                                itemA, itemB, center, volume,
+                                intersectionBox: intersectionBox.clone(),
+                                idA: itemA.expressID,
+                                idB: itemB.expressID
+                            });
+                        }
                     }
                 }
             }
+
+            this.enableXRayMode();
+
+            clashBtn.textContent = `Колизии: ${this.detectedClashes.length} ✓`;
+            const clashCountLabel = document.getElementById('clashCount');
+            if (clashCountLabel) clashCountLabel.textContent = this.detectedClashes.length;
+
+            this.buildClashInspectorUI();
+        });
+    }
+
+    createClashMarker(box3) {
+        if (!this.clashMarkersGroup) {
+            this.clashMarkersGroup = new THREE.Group();
+            this.clashMarkersGroup.name = "ClashMarkersGroup";
+            this.engine.scene.add(this.clashMarkersGroup);
         }
 
-        this.enableXRayMode();
-
-        clashBtn.textContent = `Колизии: ${this.detectedClashes.length} ✓`;
-        const clashCountLabel = document.getElementById('clashCount');
-        if (clashCountLabel) clashCountLabel.textContent = this.detectedClashes.length;
-
-        this.buildClashInspectorUI();
-    });
-}
-
-createClashMarker(box3) {
-    if (!this.clashMarkersGroup) {
-        this.clashMarkersGroup = new THREE.Group();
-        this.clashMarkersGroup.name = "ClashMarkersGroup";
-        this.engine.scene.add(this.clashMarkersGroup);
-    }
-
-    const helper = new THREE.Box3Helper(box3, 0xff0000);
-    
-    const size = new THREE.Vector3();
-    box3.getSize(size);
-    const center = new THREE.Vector3();
-    box3.getCenter(center);
-
-    const geom = new THREE.BoxGeometry(Math.max(size.x, 0.1), Math.max(size.y, 0.1), Math.max(size.z, 0.1));
-    const mat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.6, depthTest: false });
-    const mesh = new THREE.Mesh(geom, mat);
-    mesh.position.copy(center);
-
-    this.clashMarkersGroup.add(helper);
-    this.clashMarkersGroup.add(mesh);
-}
-
-clearClashMarkers() {
-    if (this.clashMarkersGroup) {
-        this.engine.scene.remove(this.clashMarkersGroup);
-        this.clashMarkersGroup = null;
-    }
-}
-
-enableXRayMode() {
-    const allMeshes = [
-        ...(this.models[1]?.meshes || []),
-        ...(this.models[2]?.meshes || [])
-    ];
-
-    allMeshes.forEach(mesh => {
-        if (!mesh.material) return;
+        const helper = new THREE.Box3Helper(box3, 0xff0000);
         
-        if (!mesh.userData.isClashMaterialSet) {
-            mesh.material = Array.isArray(mesh.material) 
-                ? mesh.material.map(m => m.clone()) 
-                : mesh.material.clone();
-            mesh.userData.isClashMaterialSet = true;
-        }
+        const size = new THREE.Vector3();
+        box3.getSize(size);
+        const center = new THREE.Vector3();
+        box3.getCenter(center);
 
-        const applyTrans = (mat) => {
-            mat.transparent = true;
-            mat.opacity = 0.25;
-        };
+        const geom = new THREE.BoxGeometry(Math.max(size.x, 0.1), Math.max(size.y, 0.1), Math.max(size.z, 0.1));
+        const mat = new THREE.MeshBasicMaterial({ color: 0xff0000, transparent: true, opacity: 0.6, depthTest: false });
+        const mesh = new THREE.Mesh(geom, mat);
+        mesh.position.copy(center);
 
-        if (Array.isArray(mesh.material)) {
-            mesh.material.forEach(applyTrans);
-        } else {
-            applyTrans(mesh.material);
-        }
-    });
-}
-
-buildClashInspectorUI() {
-    const clashList = document.getElementById('clashList');
-    if (!clashList) return;
-
-    clashList.innerHTML = '';
-
-    if (this.detectedClashes.length === 0) {
-        clashList.innerHTML = '<p style="color:#2ecc71; padding:10px;">✓ Няма открити колизии.</p>';
-        return;
+        this.clashMarkersGroup.add(helper);
+        this.clashMarkersGroup.add(mesh);
     }
 
-    // Добавяне на глобален бутон "Покажи всички"
-    const showAllBtn = document.createElement('button');
-    showAllBtn.className = 'btn-primary';
-    showAllBtn.style.cssText = 'width: 100%; margin-bottom: 10px; background: #e74c3c; color: white; border: none; padding: 8px; border-radius: 4px; cursor: pointer; font-weight: bold;';
-    showAllBtn.textContent = '👁 Покажи всички колизии наведнъж';
-    showAllBtn.addEventListener('click', () => this.highlightAllClashes());
-    clashList.appendChild(showAllBtn);
+    clearClashMarkers() {
+        if (this.clashMarkersGroup) {
+            this.engine.scene.remove(this.clashMarkersGroup);
+            this.clashMarkersGroup = null;
+        }
+    }
 
-    // Изграждане на списъка
-    this.detectedClashes.forEach((clash, index) => {
-        const item = document.createElement('div');
-        item.className = 'clash-item';
-        item.style.cssText = 'padding: 8px; margin: 4px 0; background: rgba(255,255,255,0.08); border-left: 3px solid #e74c3c; cursor: pointer; border-radius: 4px; transition: 0.2s;';
+    enableXRayMode() {
+        const allMeshes = [
+            ...(this.models[1]?.meshes || []),
+            ...(this.models[2]?.meshes || [])
+        ];
 
-        const nameA = this.getTypeName ? this.getTypeName(clash.itemA.typeCode) : 'Стена/Плоча';
-        const nameB = this.getTypeName ? this.getTypeName(clash.itemB.typeCode) : 'Тръба/Канал';
-        const pos = clash.center;
+        allMeshes.forEach(mesh => {
+            if (!mesh.material) return;
+            
+            if (!mesh.userData.isClashMaterialSet) {
+                mesh.material = Array.isArray(mesh.material) 
+                    ? mesh.material.map(m => m.clone()) 
+                    : mesh.material.clone();
+                mesh.userData.isClashMaterialSet = true;
+            }
 
-        item.innerHTML = `
-            <div class="title" style="font-weight:bold; color:#ff6b6b; font-size:13px;">Колизия #${index + 1}</div>
-            <div class="details" style="font-size:11px; color:#ccc; margin-top:2px;">
-                ${nameA} [ID: ${clash.idA}] ↔ ${nameB} [ID: ${clash.idB}]
-            </div>
-            <div style="font-size:10px; color:#aaa; margin-top:2px;">
-                Обем: ${(clash.volume * 1000).toFixed(2)} dm³ | XYZ: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})
-            </div>
-        `;
+            const applyTrans = (mat) => {
+                mat.transparent = true;
+                mat.opacity = 0.25;
+            };
 
-        item.addEventListener('mouseenter', () => item.style.background = 'rgba(255,255,255,0.2)');
-        item.addEventListener('mouseleave', () => item.style.background = 'rgba(255,255,255,0.08)');
-        item.addEventListener('click', () => this.focusOnClash(clash));
-        clashList.appendChild(item);
-    });
+            if (Array.isArray(mesh.material)) {
+                mesh.material.forEach(applyTrans);
+            } else {
+                applyTrans(mesh.material);
+            }
+        });
+    }
 
-    document.getElementById('clashPanel')?.classList.remove('hidden');
-}
+    buildClashInspectorUI() {
+        const clashList = document.getElementById('clashList');
+        if (!clashList) return;
 
-  
+        clashList.innerHTML = '';
 
-     
-focusOnClash(clash) {
+        if (this.detectedClashes.length === 0) {
+            clashList.innerHTML = '<p style="color:#2ecc71; padding:10px;">✓ Няма открити колизии.</p>';
+            return;
+        }
+
+        const showAllBtn = document.createElement('button');
+        showAllBtn.className = 'btn-primary';
+        showAllBtn.style.cssText = 'width: 100%; margin-bottom: 10px; background: #e74c3c; color: white; border: none; padding: 8px; border-radius: 4px; cursor: pointer; font-weight: bold;';
+        showAllBtn.textContent = '👁 Покажи всички колизии наведнъж';
+        showAllBtn.addEventListener('click', () => this.highlightAllClashes());
+        clashList.appendChild(showAllBtn);
+
+        this.detectedClashes.forEach((clash, index) => {
+            const item = document.createElement('div');
+            item.className = 'clash-item';
+            item.style.cssText = 'padding: 8px; margin: 4px 0; background: rgba(255,255,255,0.08); border-left: 3px solid #e74c3c; cursor: pointer; border-radius: 4px; transition: 0.2s;';
+
+            const nameA = this.getTypeName ? this.getTypeName(clash.itemA.typeCode) : 'Стена/Плоча';
+            const nameB = this.getTypeName ? this.getTypeName(clash.itemB.typeCode) : 'Тръба/Канал';
+            const pos = clash.center;
+
+            item.innerHTML = `
+                <div class="title" style="font-weight:bold; color:#ff6b6b; font-size:13px;">Колизия #${index + 1}</div>
+                <div class="details" style="font-size:11px; color:#ccc; margin-top:2px;">
+                    ${nameA} [ID: ${clash.idA}] ↔ ${nameB} [ID: ${clash.idB}]
+                </div>
+                <div style="font-size:10px; color:#aaa; margin-top:2px;">
+                    Обем: ${(clash.volume * 1000).toFixed(2)} dm³ | XYZ: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})
+                </div>
+            `;
+
+            item.addEventListener('mouseenter', () => item.style.background = 'rgba(255,255,255,0.2)');
+            item.addEventListener('mouseleave', () => item.style.background = 'rgba(255,255,255,0.08)');
+            item.addEventListener('click', () => this.focusOnClash(clash));
+            clashList.appendChild(item);
+        });
+
+        document.getElementById('clashPanel')?.classList.remove('hidden');
+    }
+
+    focusOnClash(clash) {
         const targetPos = clash.center.clone();
 
-        // Извикваме новия фокус в CameraManager
         if (this.cameraManager) {
             this.cameraManager.focusOn(targetPos, 2.5);
         }
@@ -530,7 +615,8 @@ focusOnClash(clash) {
             this.createClashMarker(clash.intersectionBox);
         }
     }
-   highlightAllClashes() {
+
+    highlightAllClashes() {
         if (this.cameraManager) {
             this.cameraManager.isClashFocused = false;
         }

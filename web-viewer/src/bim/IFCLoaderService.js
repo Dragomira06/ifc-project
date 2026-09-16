@@ -46,32 +46,50 @@ export class IFCLoaderService {
         }, [arrayBuffer]); 
     }
 
-    setupDropZone(zoneId, inputId, slot, onDone) {
-        const zone = document.getElementById(zoneId);
+    // Новият метод за управление на Landing Card-а
+    setupLandingCard(cardId, inputId, browseBtnId, slot, onDone) {
+        const card = document.getElementById(cardId);
         const input = document.getElementById(inputId);
-        if (!zone || !input) return;
+        const browseBtn = document.getElementById(browseBtnId);
+        if (!card || !input) return;
 
         const handleFile = (file) => {
             const reader = new FileReader();
             reader.onload = async (e) => {
-                zone.classList.add('hidden');
                 await this.loadIfcFile(e.target.result, slot);
                 if (onDone) onDone();
             };
             reader.readAsArrayBuffer(file);
         };
 
-        zone.addEventListener('click', () => input.click());
+        if (browseBtn) {
+            browseBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                input.click();
+            });
+        }
+
+        card.addEventListener('click', () => input.click());
 
         input.addEventListener('change', (e) => {
             if (e.target.files.length > 0) handleFile(e.target.files[0]);
         });
 
-        zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('dragover'); });
-        zone.addEventListener('dragleave', () => zone.classList.remove('dragover'));
-        zone.addEventListener('drop', (e) => {
+        card.addEventListener('dragover', (e) => { 
+            e.preventDefault(); 
+            card.style.borderColor = '#00d2d3'; 
+            card.style.background = 'rgba(10, 189, 227, 0.1)'; 
+        });
+
+        card.addEventListener('dragleave', () => { 
+            card.style.borderColor = 'rgba(10, 189, 227, 0.4)'; 
+            card.style.background = 'rgba(255, 255, 255, 0.03)'; 
+        });
+
+        card.addEventListener('drop', (e) => {
             e.preventDefault();
-            zone.classList.remove('dragover');
+            card.style.borderColor = 'rgba(10, 189, 227, 0.4)'; 
+            card.style.background = 'rgba(255, 255, 255, 0.03)';
             if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);
         });
     }
