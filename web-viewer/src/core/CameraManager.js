@@ -164,8 +164,12 @@ export class CameraManager {
     }
 
     setupUIEvents() {
-        const navModeBtn = document.getElementById('navModeBtn');
-        navModeBtn?.addEventListener('click', () => {
+        // Използваме делегиране на събития върху целия document,
+        // за да хващаме клика дори ако бутонът се генерира динамично по-късно
+        document.addEventListener('click', (event) => {
+            const navModeBtn = event.target.closest('#navModeBtn');
+            if (!navModeBtn) return;
+
             if (!this.isFirstPerson) {
                 this.orbitControls.enabled = false;
                 const currentPos = this.engine.camera.position.clone();

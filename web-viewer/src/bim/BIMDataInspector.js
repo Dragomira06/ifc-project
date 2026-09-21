@@ -48,6 +48,9 @@ export class BIMDataInspector {
         return this.typeNames[typeCode] || `Тип ${typeCode}`;
     }
 
+    
+
+
     setupCoreUI() {
         // 1. Скрит Input за качване на втори файл
         let fileInput2 = document.getElementById('fileInput2');
@@ -94,6 +97,18 @@ export class BIMDataInspector {
                 }
             }
         });
+
+        // Логика за бутона "Провери за колизии" (Превключвател / Toggle)
+document.getElementById('clashBtn')?.addEventListener('click', () => {
+    // Проверяваме дали режимът на колизии е активен в момента
+    if (this.isClashActive) {
+        this.exitClashMode(); // Затваряме режима
+    } else {
+        this.runClashDetection(); // Стартираме проверката
+    }
+});
+
+        
 
         // 3. Инструкции за FP режим
         let fpInstructions = document.getElementById('fpInstructions');
@@ -392,96 +407,149 @@ export class BIMDataInspector {
     }
 
     setupClashDetection() {
-        const clashBtn = document.getElementById('clashBtn');
-        clashBtn?.addEventListener('click', () => {
-            this.clearClashMarkers();
-            this.detectedClashes = [];
-            
-            const clashList = document.getElementById('clashList');
-            if (clashList) clashList.innerHTML = '';
+    // Флаг за следене дали режимът е активен
+    this.isClashActive = false;
+}
 
-            const extractInstanceBoxes = (meshes, typeFilter) => {
-                const boxes = [];
-                const tempMatrix = new THREE.Matrix4();
-                const tempBox = new THREE.Box3();
+runClashDetection() {
+    this.clearClashMarkers();
+    this.detectedClashes = [];
+    
+    const clashList = document.getElementById('clashList');
+    if (clashList) clashList.innerHTML = '';
 
-                meshes.forEach(mesh => {
-                    if (!mesh.userData || !mesh.visible) return;
-                    if (typeFilter && typeFilter.length > 0 && !typeFilter.includes(mesh.userData.typeCode)) return;
-                    if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+    const extractInstanceBoxes = (meshes, typeFilter) => {
+        const boxes = [];
+        const tempMatrix = new THREE.Matrix4();
+        const tempBox = new THREE.Box3();
 
-                    if (mesh.isInstancedMesh) {
-                        for (let i = 0; i < mesh.count; i++) {
-                            mesh.getMatrixAt(i, tempMatrix);
-                            const worldMatrix = tempMatrix.premultiply(mesh.matrixWorld);
-                            tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(worldMatrix);
+        meshes.forEach(mesh => {
+            if (!mesh.userData || !mesh.visible) return;
+            if (typeFilter && typeFilter.length > 0 && !typeFilter.includes(mesh.userData.typeCode)) return;
+            if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
 
-                            const instData = mesh.userData.instancesData ? mesh.userData.instancesData[i] : null;
-                            const expressID = instData ? instData.expressID : mesh.userData.expressID;
+            if (mesh.isInstancedMesh) {
+                for (let i = 0; i < mesh.count; i++) {
+                    mesh.getMatrixAt(i, tempMatrix);
+                    const worldMatrix = tempMatrix.premultiply(mesh.matrixWorld);
+                    tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(worldMatrix);
 
-                            boxes.push({
-                                mesh,
-                                instanceId: i,
-                                box: tempBox.clone(),
-                                expressID: expressID,
-                                typeCode: mesh.userData.typeCode
-                            });
-                        }
-                    } else {
-                        tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
-                        boxes.push({
-                            mesh,
-                            instanceId: null,
-                            box: tempBox.clone(),
-                            expressID: mesh.userData.expressID,
-                            typeCode: mesh.userData.typeCode
-                        });
-                    }
+                    const instData = mesh.userData.instancesData ? mesh.userData.instancesData[i] : null;
+                    const expressID = instData ? instData.expressID : mesh.userData.expressID;
+
+                    boxes.push({
+                        mesh,
+                        instanceId: i,
+                        box: tempBox.clone(),
+                        expressID: expressID,
+                        typeCode: mesh.userData.typeCode
+                    });
+                }
+            } else {
+                tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
+                boxes.push({
+                    mesh,
+                    instanceId: null,
+                    box: tempBox.clone(),
+                    expressID: mesh.userData.expressID,
+                    typeCode: mesh.userData.typeCode
                 });
+            }
+        });
 
-                return boxes;
-            };
+        return boxes;
+    };
 
-            const structBoxes = extractInstanceBoxes(this.models[1]?.meshes || [], this.structuralTypes);
-            const mepBoxes = extractInstanceBoxes(this.models[2]?.meshes || [], this.mepTypes);
+    const structBoxes = extractInstanceBoxes(this.models[1]?.meshes || [], this.structuralTypes);
+    const mepBoxes = extractInstanceBoxes(this.models[2]?.meshes || [], this.mepTypes);
 
-            const MIN_OVERLAP_VOLUME = 0.00005; 
+    const MIN_OVERLAP_VOLUME = 0.00005; 
 
-            for (const itemA of structBoxes) {
-                for (const itemB of mepBoxes) {
-                    if (itemA.mesh === itemB.mesh && itemA.instanceId === itemB.instanceId) continue;
+    for (const itemA of structBoxes) {
+        for (const itemB of mepBoxes) {
+            if (itemA.mesh === itemB.mesh && itemA.instanceId === itemB.instanceId) continue;
 
-                    if (itemA.box.intersectsBox(itemB.box)) {
-                        const intersectionBox = itemA.box.clone().intersect(itemB.box);
-                        const size = new THREE.Vector3();
-                        intersectionBox.getSize(size);
-                        const volume = size.x * size.y * size.z;
+            if (itemA.box.intersectsBox(itemB.box)) {
+                const intersectionBox = itemA.box.clone().intersect(itemB.box);
+                const size = new THREE.Vector3();
+                intersectionBox.getSize(size);
+                const volume = size.x * size.y * size.z;
 
-                        if (volume > MIN_OVERLAP_VOLUME) {
-                            const center = new THREE.Vector3();
-                            intersectionBox.getCenter(center);
+                if (volume > MIN_OVERLAP_VOLUME) {
+                    const center = new THREE.Vector3();
+                    intersectionBox.getCenter(center);
 
-                            this.detectedClashes.push({
-                                itemA, itemB, center, volume,
-                                intersectionBox: intersectionBox.clone(),
-                                idA: itemA.expressID,
-                                idB: itemB.expressID
-                            });
-                        }
-                    }
+                    this.detectedClashes.push({
+                        itemA, itemB, center, volume,
+                        intersectionBox: intersectionBox.clone(),
+                        idA: itemA.expressID,
+                        idB: itemB.expressID
+                    });
                 }
             }
-
-            this.enableXRayMode();
-
-            clashBtn.textContent = `Колизии: ${this.detectedClashes.length} ✓`;
-            const clashCountLabel = document.getElementById('clashCount');
-            if (clashCountLabel) clashCountLabel.textContent = this.detectedClashes.length;
-
-            this.buildClashInspectorUI();
-        });
+        }
     }
 
+    this.enableXRayMode();
+    this.isClashActive = true;
+
+    // Външният бутон става червен с опция за изход
+    const clashBtn = document.getElementById('clashBtn');
+    if (clashBtn) {
+        clashBtn.textContent = `❌ Изход от колизии (${this.detectedClashes.length})`;
+        clashBtn.style.background = '#e74c3c';
+    }
+
+    const clashCountLabel = document.getElementById('clashCount');
+    if (clashCountLabel) clashCountLabel.textContent = this.detectedClashes.length;
+
+    this.buildClashInspectorUI();
+}
+
+ exitClashMode() {
+    this.isClashActive = false;
+
+    // 1. Скриване на панела за колизии
+    const clashPanel = document.getElementById('clashPanel');
+    if (clashPanel) {
+        clashPanel.classList.add('hidden');
+        clashPanel.style.display = 'none';
+    }
+
+    // 2. Почистване на маркерите
+    this.clearClashMarkers();
+    this.detectedClashes = [];
+
+    // 3. Възстановяване на нормалния вид на модела (Изход от X-Ray)
+    const allMeshes = [
+        ...(this.models[1]?.meshes || []),
+        ...(this.models[2]?.meshes || [])
+    ];
+
+    allMeshes.forEach(mesh => {
+        if (!mesh.material) return;
+
+        const disableXRay = (mat) => {
+            mat.transparent = false;
+            mat.opacity = 1.0;
+            mat.depthWrite = true; // Връщаме нормалното рендиране на дълбочина
+            mat.needsUpdate = true;
+        };
+
+        if (Array.isArray(mesh.material)) {
+            mesh.material.forEach(disableXRay);
+        } else {
+            disableXRay(mesh.material);
+        }
+    });
+
+    // 4. Връщане на бутона
+    const clashBtn = document.getElementById('clashBtn');
+    if (clashBtn) {
+        clashBtn.textContent = 'Провери за колизии';
+        clashBtn.style.background = '';
+    }
+}
     createClashMarker(box3) {
         if (!this.clashMarkersGroup) {
             this.clashMarkersGroup = new THREE.Group();
@@ -512,48 +580,52 @@ export class BIMDataInspector {
         }
     }
 
-    enableXRayMode() {
-        const allMeshes = [
-            ...(this.models[1]?.meshes || []),
-            ...(this.models[2]?.meshes || [])
-        ];
+     enableXRayMode() {
+    // Всички 3D обекти от заредените модели
+    const allMeshes = [
+        ...(this.models[1]?.meshes || []),
+        ...(this.models[2]?.meshes || [])
+    ];
 
-        allMeshes.forEach(mesh => {
-            if (!mesh.material) return;
-            
-            if (!mesh.userData.isClashMaterialSet) {
-                mesh.material = Array.isArray(mesh.material) 
-                    ? mesh.material.map(m => m.clone()) 
-                    : mesh.material.clone();
-                mesh.userData.isClashMaterialSet = true;
-            }
+    allMeshes.forEach(mesh => {
+        if (!mesh.material) return;
 
-            const applyTrans = (mat) => {
-                mat.transparent = true;
-                mat.opacity = 0.25;
-            };
+        // Функция за налагане на полупрозрачност (X-Ray ефект)
+        const applyXRay = (mat) => {
+            mat.transparent = true;
+            mat.opacity = 0.25; // Прозрачност на сградата
+            mat.depthWrite = false; // Важно: предотвратява графични артефакти при застъпване
+            mat.needsUpdate = true;
+        };
 
-            if (Array.isArray(mesh.material)) {
-                mesh.material.forEach(applyTrans);
-            } else {
-                applyTrans(mesh.material);
-            }
-        });
-    }
+        if (Array.isArray(mesh.material)) {
+            mesh.material.forEach(applyXRay);
+        } else {
+            applyXRay(mesh.material);
+        }
+    });
+}
 
     buildClashInspectorUI() {
-        const clashList = document.getElementById('clashList');
-        if (!clashList) return;
+    const clashList = document.getElementById('clashList');
+    if (!clashList) return;
 
-        clashList.innerHTML = '';
+    clashList.innerHTML = '';
 
-        if (this.detectedClashes.length === 0) {
-            clashList.innerHTML = '<p style="color:#2ecc71; padding:10px;">✓ Няма открити колизии.</p>';
-            return;
-        }
+    // Бутон най-отгоре в панела за бърз изход
+    const exitBtn = document.createElement('button');
+    exitBtn.style.cssText = 'width: 100%; margin-bottom: 8px; background: #555; color: white; border: none; padding: 8px; border-radius: 4px; cursor: pointer; font-weight: bold;';
+    exitBtn.textContent = '🚪 Излез и затвори колизиите';
+    exitBtn.addEventListener('click', () => this.exitClashMode());
+    clashList.appendChild(exitBtn);
 
+    if (this.detectedClashes.length === 0) {
+        const noClashMsg = document.createElement('p');
+        noClashMsg.style.cssText = 'color:#2ecc71; padding:10px; margin:0;';
+        noClashMsg.textContent = '✓ Няма открити колизии.';
+        clashList.appendChild(noClashMsg);
+    } else {
         const showAllBtn = document.createElement('button');
-        showAllBtn.className = 'btn-primary';
         showAllBtn.style.cssText = 'width: 100%; margin-bottom: 10px; background: #e74c3c; color: white; border: none; padding: 8px; border-radius: 4px; cursor: pointer; font-weight: bold;';
         showAllBtn.textContent = '👁 Покажи всички колизии наведнъж';
         showAllBtn.addEventListener('click', () => this.highlightAllClashes());
@@ -561,7 +633,6 @@ export class BIMDataInspector {
 
         this.detectedClashes.forEach((clash, index) => {
             const item = document.createElement('div');
-            item.className = 'clash-item';
             item.style.cssText = 'padding: 8px; margin: 4px 0; background: rgba(255,255,255,0.08); border-left: 3px solid #e74c3c; cursor: pointer; border-radius: 4px; transition: 0.2s;';
 
             const nameA = this.getTypeName ? this.getTypeName(clash.itemA.typeCode) : 'Стена/Плоча';
@@ -569,8 +640,8 @@ export class BIMDataInspector {
             const pos = clash.center;
 
             item.innerHTML = `
-                <div class="title" style="font-weight:bold; color:#ff6b6b; font-size:13px;">Колизия #${index + 1}</div>
-                <div class="details" style="font-size:11px; color:#ccc; margin-top:2px;">
+                <div style="font-weight:bold; color:#ff6b6b; font-size:13px;">Колизия #${index + 1}</div>
+                <div style="font-size:11px; color:#ccc; margin-top:2px;">
                     ${nameA} [ID: ${clash.idA}] ↔ ${nameB} [ID: ${clash.idB}]
                 </div>
                 <div style="font-size:10px; color:#aaa; margin-top:2px;">
@@ -583,9 +654,14 @@ export class BIMDataInspector {
             item.addEventListener('click', () => this.focusOnClash(clash));
             clashList.appendChild(item);
         });
-
-        document.getElementById('clashPanel')?.classList.remove('hidden');
     }
+
+    const clashPanel = document.getElementById('clashPanel');
+    if (clashPanel) {
+        clashPanel.classList.remove('hidden');
+        clashPanel.style.display = 'block';
+    }
+}
 
     focusOnClash(clash) {
         const targetPos = clash.center.clone();
