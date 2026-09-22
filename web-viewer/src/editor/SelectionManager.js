@@ -87,40 +87,38 @@ export class SelectionManager {
     }
 
     createInspectorUI() {
-        this.panel = document.createElement('div');
-        this.panel.id = 'objectEditorPanel';
-        this.panel.style.cssText = `
-            position: fixed; bottom: 20px; left: 20px; z-index: 100;
-            padding: 14px; background: rgba(30, 39, 46, 0.95); color: white;
-            border: 1px solid #3c6382; border-radius: 8px; font-size: 13px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.4); display: none; flex-direction: column; gap: 10px;
-            backdrop-filter: blur(5px); font-family: sans-serif; min-width: 230px;
-        `;
+    this.panel = document.createElement('div');
+    this.panel.id = 'objectEditorPanel';
+    this.panel.style.cssText = `
+        position: fixed; bottom: 300px; left: 20px; z-index: 100;
+        padding: 14px; background: rgba(30, 39, 46, 0.95); color: white;
+        border: 1px solid #3c6382; border-radius: 8px; font-size: 13px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.4); display: none; flex-direction: column; gap: 10px;
+        backdrop-filter: blur(5px); font-family: sans-serif; min-width: 217px;
+    `;
 
-        this.panel.innerHTML = `
-            <div style="font-weight: bold; border-bottom: 1px solid #485460; padding-bottom: 4px; display: flex; justify-content: space-between;">
-                <span>🛠️ Управление на обект</span>
-                <span id="closeEditorBtn" style="cursor: pointer; color: #ff5e57;">✕</span>
-            </div>
-            
-            <div style="display: flex; flex-direction: column; gap: 4px;">
-                <label>📐 Индивидуален мащаб:</label>
-                <input type="range" id="objScaleInput" min="-5" max="0.7" step="0.01" value="-4" style="cursor: pointer;">
-                <span id="objScaleVal" style="font-size: 11px; color: #dcdde1; text-align: right;">1.0</span>
-            </div>
+    this.panel.innerHTML = `
+        <div style="font-weight: bold; border-bottom: 1px solid #485460; padding-bottom: 4px; display: flex; justify-content: space-between;">
+            <span>🛠️ Управление на обект</span>
+            <span id="closeEditorBtn" style="cursor: pointer; color: #ff5e57;">✕</span>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+            <label>📐 Индивидуален мащаб:</label>
+            <input type="range" id="objScaleInput" min="-5" max="0.7" step="0.01" value="-4" style="cursor: pointer;">
+            <span id="objScaleVal" style="font-size: 11px; color: #dcdde1; text-align: right;">1.0</span>
+        </div>
 
-            <div style="display: flex; gap: 6px; margin-top: 4px;">
-                <button id="deleteObjBtn" style="flex: 1; padding: 7px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold;">🗑️ Изтрий обекта</button>
-            </div>
+        <div style="display: flex; gap: 6px; margin-top: 4px;">
+            <button id="deleteObjBtn" style="flex: 1; padding: 7px 4px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px; white-space: nowrap;">🗑️ Изтрий</button>
+            <button id="undoDeleteBtn" style="flex: 1; padding: 7px 4px; background: #2980b9; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px; white-space: nowrap;">↩️ Върни</button>
+        </div>
+    `;
 
-            <div style="display: flex; gap: 6px; border-top: 1px solid #485460; padding-top: 8px;">
-                <button id="undoDeleteBtn" style="flex: 1; padding: 6px; background: #2980b9; color: white; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 12px;">↩️ Върни изтрит обект</button>
-            </div>
-        `;
+    document.body.appendChild(this.panel);
 
-        document.body.appendChild(this.panel);
+    this.panel.querySelector('#closeEditorBtn').onclick = () => this.deselect();
 
-        this.panel.querySelector('#closeEditorBtn').onclick = () => this.deselect();
 
         // 1. Изтриване
         this.panel.querySelector('#deleteObjBtn').onclick = () => {

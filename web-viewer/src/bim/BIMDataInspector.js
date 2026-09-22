@@ -72,15 +72,27 @@ export class BIMDataInspector {
             }
         });
 
-        // 2. Главен панел с бутони
+        // 2. Главен панел с бутони (Горе вдясно, ширина 210px)
         let btnPanel = document.querySelector('.btn-panel');
         if (!btnPanel) {
             btnPanel = document.createElement('div');
             btnPanel.className = 'btn-panel';
+            btnPanel.style.cssText = `
+                position: fixed !important;
+                top: 20px !important;
+                right: 20px !important;
+                left: auto !important;
+                bottom: auto !important;
+                width: 250px !important; /* Точна ширина на панела */
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                z-index: 50;
+            `;
             btnPanel.innerHTML = `
-                <button id="addModelBtn" class="btn">+ Добави втори модел</button>
-                <button id="clashBtn" class="btn">Провери за колизии</button>
-                <button id="navModeBtn" class="btn" style="background: #0077b6; border: 1px solid #90e0ef;">🚶 Влез вътре (First-Person)</button>
+                <button id="addModelBtn" class="btn" style="width: 100%; box-sizing: border-box;">+ Добави втори модел</button>
+                <button id="clashBtn" class="btn" style="width: 100%; box-sizing: border-box;">Провери за колизии</button>
+                <button id="navModeBtn" class="btn" style="width: 100%; box-sizing: border-box; background: #0077b6; border: 1px solid #90e0ef;">🚶 Влез вътре (First-Person)</button>
             `;
             document.body.appendChild(btnPanel);
         }
@@ -125,37 +137,53 @@ document.getElementById('clashBtn')?.addEventListener('click', () => {
             document.body.appendChild(fpInstructions);
         }
 
-        // 4. Панел с елементи
+       // 4. Панел с елементи (Фиксиран ДОЛУ ВДЯСНО с отстояние)
         let elementPanel = document.getElementById('elementPanel');
         if (!elementPanel) {
             elementPanel = document.createElement('div');
             elementPanel.id = 'elementPanel';
             elementPanel.className = 'panel hidden';
+            elementPanel.style.cssText = `
+                position: fixed !important;
+                top: auto !important;         /* Премахва позиционирането отгоре */
+                bottom: 20px !important;      /* Отстояние от долния ръб */
+                right: 20px !important;       /* Отстояние от десния ръб */
+                width: 220px;                 /* По-тесен панел */
+                max-height: 320px;
+                display: flex;
+                flex-direction: column;
+                z-index: 40;
+            `;
             elementPanel.innerHTML = `
-                <h3>Елементи в модела</h3>
-                <div class="panel-actions">
+                <h3 style="margin: 0 0 10px 0; font-size: 14px;">Елементи в модела</h3>
+                <div class="panel-actions" style="margin-bottom: 8px;">
                     <button id="showAllBtn" class="btn-small">Покажи всички</button>
                     <button id="hideAllBtn" class="btn-small">Скрий всички</button>
                 </div>
-                <div id="elementList"></div>
+                <div id="elementList" style="max-height: 230px; overflow-y: auto; padding-right: 5px;"></div>
             `;
             document.body.appendChild(elementPanel);
         }
+     // 5. Панел с колизии
+let clashPanel = document.getElementById('clashPanel');
+if (!clashPanel) {
+    clashPanel = document.createElement('div');
+    clashPanel.id = 'clashPanel';
+    clashPanel.className = 'panel hidden';
+    clashPanel.style.bottom = '10px';
+    clashPanel.style.left = '10px';
+    
+    // Задаваме малки размери на панела:
+    clashPanel.style.width = '300px';        // Фиксирана ширина (по-тясна)
+    clashPanel.style.maxHeight = '300px';     // Ограничаваме височината, за да не се разпъва нагоре
+    clashPanel.style.overflowY = 'auto';      // Включваме скрол за списъка
 
-        // 5. Панел с колизии
-        let clashPanel = document.getElementById('clashPanel');
-        if (!clashPanel) {
-            clashPanel = document.createElement('div');
-            clashPanel.id = 'clashPanel';
-            clashPanel.className = 'panel hidden';
-            clashPanel.style.bottom = '20px';
-            clashPanel.style.left = '20px';
-            clashPanel.innerHTML = `
-                <h3>Списък на колизиите (<span id="clashCount">0</span>)</h3>
-                <div id="clashList"></div>
-            `;
-            document.body.appendChild(clashPanel);
-        }
+    clashPanel.innerHTML = `
+        <h3 style="margin:0 0 15px 0; font-size:12px;">Списък на колизиите (<span id="clashCount">0</span>)</h3>
+        <div id="clashList"></div>
+    `;
+    document.body.appendChild(clashPanel);
+}
     }
 
     setupRenderSwitchButton() {
@@ -165,9 +193,9 @@ document.getElementById('clashBtn')?.addEventListener('click', () => {
         if (!btn) {
             btn = document.createElement('button');
             btn.id = 'renderSwitchBtn';
-            btn.innerHTML = '🎨 PBR Реалистичен режим: ИЗКЛ';
+            btn.innerHTML = 'PBR Реалистичен режим: ИЗКЛ';
             btn.style.cssText = `
-                position: fixed; top: 12px; right: 20px; z-index: 50;
+                position: fixed; top: 12px; left: 20px; z-index: 50;
                 padding: 10px 16px; background: #2c3e50; color: white;
                 border: 1px solid #34495e; border-radius: 6px; cursor: pointer;
                 font-weight: bold; font-size: 13px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
@@ -181,7 +209,7 @@ document.getElementById('clashBtn')?.addEventListener('click', () => {
 
         btn.onclick = () => {
             const isRealistic = this.materialManager.toggleRealisticMode(this.models);
-            btn.innerHTML = isRealistic ? '✨ PBR Реалистичен режим: ВКЛ' : '🎨 PBR Реалистичен режим: ИЗКЛ';
+            btn.innerHTML = isRealistic ? 'PBR Реалистичен режим: ВКЛ' : 'PBR Реалистичен режим: ИЗКЛ';
             btn.style.background = isRealistic ? '#27ae60' : '#2c3e50';
         };
     } 
@@ -194,8 +222,8 @@ document.getElementById('clashBtn')?.addEventListener('click', () => {
             panel = document.createElement('div');
             panel.id = 'envPanelUI';
             panel.style.cssText = `
-                position: fixed; top: 60px; right: 20px; z-index: 50;
-                background: rgba(20, 25, 35, 0.9); color: white;
+                position: fixed; top: 210px; right: 20px; z-index: 50;
+                background: rgba(30, 77, 170, 0.9); color: white;
                 padding: 12px 16px; border-radius: 8px; width: 220px;
                 border: 1px solid rgba(255, 255, 255, 0.15);
                 box-shadow: 0 4px 15px rgba(0,0,0,0.4); font-size: 12px;
@@ -247,10 +275,10 @@ document.getElementById('clashBtn')?.addEventListener('click', () => {
             panel.id = 'infoPanel';
             panel.className = 'info-panel';
             panel.style.cssText = `
-                position: fixed; top: 10px; left: 450px;
-                background: rgba(0,0,0,0.85); color: white;
+                position: fixed; top: 60px; left: 20px;
+                background: rgba(56, 139, 186, 0.85); color: white;
                 padding: 12px; border-radius: 6px;
-                font-size: 13px; width: 280px; display: none; z-index: 40;
+                font-size: 13px; width: 220px; display: none; z-index: 40;
                 border: 1px solid rgba(255,255,255,0.1);
             `;
             document.body.appendChild(panel);
@@ -360,7 +388,7 @@ document.getElementById('clashBtn')?.addEventListener('click', () => {
             row.style.cssText = 'margin: 4px 0; display: flex; align-items: center; justify-content: space-between;';
 
             const labelContainer = document.createElement('label');
-            labelContainer.style.cssText = 'display: flex; align-items: center; cursor: pointer; color: white;';
+            labelContainer.style.cssText = 'display: flex; align-items: center; cursor: pointer; color: white; font-size: 12px;';
 
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
@@ -389,7 +417,11 @@ document.getElementById('clashBtn')?.addEventListener('click', () => {
             elementList.appendChild(row);
         }
 
-        document.getElementById('elementPanel')?.classList.remove('hidden');
+        const elementPanel = document.getElementById('elementPanel');
+        if (elementPanel) {
+            elementPanel.classList.remove('hidden');
+            elementPanel.style.display = 'flex';
+        }
 
         const showBtn = document.getElementById('showAllBtn');
         if (showBtn) showBtn.onclick = () => this.toggleAllElements(true);
@@ -614,37 +646,37 @@ runClashDetection() {
 
     // Бутон най-отгоре в панела за бърз изход
     const exitBtn = document.createElement('button');
-    exitBtn.style.cssText = 'width: 100%; margin-bottom: 8px; background: #555; color: white; border: none; padding: 8px; border-radius: 4px; cursor: pointer; font-weight: bold;';
+    exitBtn.style.cssText = 'width: 100%; margin-bottom: 4px; background: #555; color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px;';
     exitBtn.textContent = '🚪 Излез и затвори колизиите';
     exitBtn.addEventListener('click', () => this.exitClashMode());
     clashList.appendChild(exitBtn);
 
     if (this.detectedClashes.length === 0) {
         const noClashMsg = document.createElement('p');
-        noClashMsg.style.cssText = 'color:#2ecc71; padding:10px; margin:0;';
+        noClashMsg.style.cssText = 'color:#2ecc71; padding:5px; margin:0; font-size:12px;';
         noClashMsg.textContent = '✓ Няма открити колизии.';
         clashList.appendChild(noClashMsg);
     } else {
         const showAllBtn = document.createElement('button');
-        showAllBtn.style.cssText = 'width: 100%; margin-bottom: 10px; background: #e74c3c; color: white; border: none; padding: 8px; border-radius: 4px; cursor: pointer; font-weight: bold;';
+        showAllBtn.style.cssText = 'width: 100%; margin-bottom: 5px; background: #e74c3c; color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px;';
         showAllBtn.textContent = '👁 Покажи всички колизии наведнъж';
         showAllBtn.addEventListener('click', () => this.highlightAllClashes());
         clashList.appendChild(showAllBtn);
 
         this.detectedClashes.forEach((clash, index) => {
             const item = document.createElement('div');
-            item.style.cssText = 'padding: 8px; margin: 4px 0; background: rgba(255,255,255,0.08); border-left: 3px solid #e74c3c; cursor: pointer; border-radius: 4px; transition: 0.2s;';
+            item.style.cssText = 'padding: 4px; margin: 2px 0; background: rgba(250,250,250,0.06); border-left: 2px solid #e74c3c; cursor: pointer; border-radius: 3px; transition: 0.2s;';
 
             const nameA = this.getTypeName ? this.getTypeName(clash.itemA.typeCode) : 'Стена/Плоча';
             const nameB = this.getTypeName ? this.getTypeName(clash.itemB.typeCode) : 'Тръба/Канал';
             const pos = clash.center;
 
             item.innerHTML = `
-                <div style="font-weight:bold; color:#ff6b6b; font-size:13px;">Колизия #${index + 1}</div>
-                <div style="font-size:11px; color:#ccc; margin-top:2px;">
+                <div style="font-weight:bold; color:#ff6b6b; font-size:12px;">Колизия #${index + 1}</div>
+                <div style="font-size:10px; color:#ccc; margin-top:1px;">
                     ${nameA} [ID: ${clash.idA}] ↔ ${nameB} [ID: ${clash.idB}]
                 </div>
-                <div style="font-size:10px; color:#aaa; margin-top:2px;">
+                <div style="font-size:8px; color:#aaa; margin-top:1px;">
                     Обем: ${(clash.volume * 1000).toFixed(2)} dm³ | XYZ: (${pos.x.toFixed(1)}, ${pos.y.toFixed(1)}, ${pos.z.toFixed(1)})
                 </div>
             `;
