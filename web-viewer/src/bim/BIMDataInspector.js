@@ -2,17 +2,18 @@ import * as THREE from 'three';
 import * as WebIFC from 'web-ifc';
 
 export class BIMDataInspector {
-    // 1. Добавихме envManager като 6-ти параметър
     constructor(engine, models, ifcLoaderService, cameraManager, materialManager = null, envManager = null) {
         this.engine = engine;
         this.models = models;
         this.ifcLoaderService = ifcLoaderService;
         this.cameraManager = cameraManager;
         this.materialManager = materialManager;
-        this.envManager = envManager; // НОВ РЕД: Запазваме референция към атмосферата
+        this.envManager = envManager;
 
         this.currentlySelected = null;
         this.detectedClashes = [];
+        this.deletedObjectsStack = [];
+        this.activePanelId = null;
 
         this.structuralTypes = [
             WebIFC.IFCWALLSTANDARDCASE, WebIFC.IFCWALL,
@@ -36,23 +37,19 @@ export class BIMDataInspector {
             [WebIFC.IFCFLOWSEGMENT]: 'Тръба / Канал'
         };
 
-        this.setupCoreUI(); // Динамично създаване на UI бутоните
-        this.initInfoPanel();
+        this.initToolbarNavigation();
         this.setupClickSelection();
         this.setupClashDetection();
-        this.setupRenderSwitchButton();
-        this.setupEnvironmentUI(); // НОВ РЕД: Инициализира атмосферното меню
     }
 
     getTypeName(typeCode) {
         return this.typeNames[typeCode] || `Тип ${typeCode}`;
     }
 
-    
-
-
-    setupCoreUI() {
-        // 1. Скрит Input за качване на втори файл
+    /* =========================================================
+       1. СТРАНИЧНО МЕНЮ С ИКОНКИ & FLYOUT ПАНЕЛИ
+       ========================================================= */
+    initToolbarNavigation() {
         let fileInput2 = document.getElementById('fileInput2');
         if (!fileInput2) {
             fileInput2 = document.createElement('input');
@@ -72,57 +69,124 @@ export class BIMDataInspector {
             }
         });
 
-        // 2. Главен панел с бутони (Горе вдясно, ширина 210px)
-        let btnPanel = document.querySelector('.btn-panel');
-        if (!btnPanel) {
-            btnPanel = document.createElement('div');
-            btnPanel.className = 'btn-panel';
-            btnPanel.style.cssText = `
-                position: fixed !important;
-                top: 20px !important;
-                right: 20px !important;
-                left: auto !important;
-                bottom: auto !important;
-                width: 250px !important; /* Точна ширина на панела */
+        let navBar = document.getElementById('sideIconNav');
+        if (!navBar) {
+            navBar = document.createElement('div');
+            navBar.id = 'sideIconNav';
+            navBar.style.cssText = `
+                position: fixed;
+                top: 50%;
+                right: 20px;
+                transform: translateY(-50%);
+                width: 60px;
+                background: rgba(18, 24, 38, 0.85);
+                backdrop-filter: blur(12px);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                border-radius: 30px;
+                padding: 12px 0;
                 display: flex;
                 flex-direction: column;
-                gap: 8px;
-                z-index: 50;
+                align-items: center;
+                gap: 12px;
+                z-index: 100;
+                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
             `;
-            btnPanel.innerHTML = `
-                <button id="addModelBtn" class="btn" style="width: 100%; box-sizing: border-box;">+ Добави втори модел</button>
-                <button id="clashBtn" class="btn" style="width: 100%; box-sizing: border-box;">Провери за колизии</button>
-                <button id="navModeBtn" class="btn" style="width: 100%; box-sizing: border-box; background: #0077b6; border: 1px solid #90e0ef;">🚶 Влез вътре (First-Person)</button>
-            `;
-            document.body.appendChild(btnPanel);
+            document.body.appendChild(navBar);
         }
 
-        // Закачане на събития към бутоните
-        document.getElementById('addModelBtn')?.addEventListener('click', () => fileInput2.click());
-        
-        document.getElementById('navModeBtn')?.addEventListener('click', () => {
-            if (this.cameraManager && this.cameraManager.toggleFirstPersonMode) {
-                const isFP = this.cameraManager.toggleFirstPersonMode();
-                const fpInstructions = document.getElementById('fpInstructions');
-                if (fpInstructions) {
-                    fpInstructions.classList.toggle('hidden', !isFP);
+        const navItems = [
+            { id: 'btnInfo', icon: 'ℹ️', tooltip: 'Информация за обект', panel: 'infoPanel' },
+            { id: 'btnPbr', icon: '✨', tooltip: 'PBR Реалистичен режим', action: 'togglePBR' },
+            { id: 'btnAddModel', icon: '➕', tooltip: 'Добави втори модел', action: 'addModel' },
+            { id: 'btnClashes', icon: '⚡', tooltip: 'Проверка за колизии', panel: 'clashPanel' },
+            { id: 'btnFirstPerson', icon: '🚶', tooltip: 'Влез вътре (First-Person)', action: 'toggleFP' },
+            { id: 'btnRestore', icon: '↺', tooltip: 'Върни изтрит обект', action: 'restoreObject' },
+            { id: 'btnObjectEditor', icon: '🛠️', tooltip: 'Управление на обект', panel: 'objectEditorPanel' },
+            { id: 'btnEnv', icon: '🌅', tooltip: 'Атмосфера и Осветление', panel: 'envPanelUI' },
+            { id: 'btnElements', icon: '📑', tooltip: 'Елементи в модела', panel: 'elementPanel' }
+        ];
+
+        navBar.innerHTML = '';
+
+        navItems.forEach(item => {
+            const btnContainer = document.createElement('div');
+            btnContainer.style.cssText = `position: relative; display: flex; align-items: center;`;
+
+            const btn = document.createElement('button');
+            btn.id = item.id;
+            btn.innerHTML = item.icon;
+            btn.style.cssText = `
+                width: 42px;
+                height: 42px;
+                border-radius: 50%;
+                border: none;
+                background: rgba(255, 255, 255, 0.08);
+                color: #fff;
+                font-size: 17px;
+                cursor: pointer;
+                transition: all 0.25s ease;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            `;
+
+            const tooltip = document.createElement('div');
+            tooltip.textContent = item.tooltip;
+            tooltip.style.cssText = `
+                position: absolute;
+                right: 54px;
+                top: 50%;
+                transform: translateY(-50%);
+                background: rgba(10, 15, 26, 0.95);
+                color: #fff;
+                padding: 6px 12px;
+                border-radius: 8px;
+                font-size: 12px;
+                white-space: nowrap;
+                pointer-events: none;
+                opacity: 0;
+                transition: opacity 0.2s ease, transform 0.2s ease;
+                border: 1px solid rgba(255,255,255,0.1);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            `;
+
+            btnContainer.appendChild(tooltip);
+            btnContainer.appendChild(btn);
+            navBar.appendChild(btnContainer);
+
+            btn.addEventListener('mouseenter', () => {
+                btn.style.background = 'rgba(255, 255, 255, 0.25)';
+                btn.style.transform = 'scale(1.1)';
+                tooltip.style.opacity = '1';
+            });
+
+            btn.addEventListener('mouseleave', () => {
+                if (this.activePanelId !== item.panel) {
+                    btn.style.background = 'rgba(255, 255, 255, 0.08)';
                 }
-            }
+                btn.style.transform = 'scale(1)';
+                tooltip.style.opacity = '0';
+            });
+
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (item.action === 'togglePBR') {
+                    if (this.materialManager) {
+                        const isRealistic = this.materialManager.toggleRealisticMode(this.models);
+                        btn.style.border = isRealistic ? '2px solid #2ecc71' : 'none';
+                    }
+                } else if (item.action === 'addModel') {
+                    fileInput2.click();
+                } else if (item.action === 'toggleFP') {
+                    this.toggleFirstPersonNavigation();
+                } else if (item.action === 'restoreObject') {
+                    this.restoreLastDeletedObject();
+                } else if (item.panel) {
+                    this.toggleSidePanel(item.panel, btn);
+                }
+            });
         });
 
-        // Логика за бутона "Провери за колизии" (Превключвател / Toggle)
-document.getElementById('clashBtn')?.addEventListener('click', () => {
-    // Проверяваме дали режимът на колизии е активен в момента
-    if (this.isClashActive) {
-        this.exitClashMode(); // Затваряме режима
-    } else {
-        this.runClashDetection(); // Стартираме проверката
-    }
-});
-
-        
-
-        // 3. Инструкции за FP режим
         let fpInstructions = document.getElementById('fpInstructions');
         if (!fpInstructions) {
             fpInstructions = document.createElement('div');
@@ -131,169 +195,218 @@ document.getElementById('clashBtn')?.addEventListener('click', () => {
             fpInstructions.style.cssText = `
                 position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
                 background: rgba(10,17,40,0.9); color: white; padding: 12px 24px; border-radius: 20px;
-                font-size: 13px; pointer-events: none; z-index: 60; border: 1px solid #0077b6; box-shadow: 0 0 15px rgba(0,0,0,0.8);
+                font-size: 13px; pointer-events: none; z-index: 120; border: 1px solid #0077b6;
+                display: none;
             `;
             fpInstructions.innerHTML = 'Ходене: <b>W, A, S, D</b> | Завъртане: <b>Мишка</b> | Изход: <b>ESC</b>';
             document.body.appendChild(fpInstructions);
         }
 
-       // 4. Панел с елементи (Фиксиран ДОЛУ ВДЯСНО с отстояние)
-        let elementPanel = document.getElementById('elementPanel');
-        if (!elementPanel) {
-            elementPanel = document.createElement('div');
-            elementPanel.id = 'elementPanel';
-            elementPanel.className = 'panel hidden';
-            elementPanel.style.cssText = `
-                position: fixed !important;
-                top: auto !important;         /* Премахва позиционирането отгоре */
-                bottom: 20px !important;      /* Отстояние от долния ръб */
-                right: 20px !important;       /* Отстояние от десния ръб */
-                width: 220px;                 /* По-тесен панел */
-                max-height: 320px;
-                display: flex;
-                flex-direction: column;
-                z-index: 40;
-            `;
-            elementPanel.innerHTML = `
-                <h3 style="margin: 0 0 10px 0; font-size: 14px;">Елементи в модела</h3>
-                <div class="panel-actions" style="margin-bottom: 8px;">
-                    <button id="showAllBtn" class="btn-small">Покажи всички</button>
-                    <button id="hideAllBtn" class="btn-small">Скрий всички</button>
-                </div>
-                <div id="elementList" style="max-height: 230px; overflow-y: auto; padding-right: 5px;"></div>
-            `;
-            document.body.appendChild(elementPanel);
-        }
-     // 5. Панел с колизии
-let clashPanel = document.getElementById('clashPanel');
-if (!clashPanel) {
-    clashPanel = document.createElement('div');
-    clashPanel.id = 'clashPanel';
-    clashPanel.className = 'panel hidden';
-    clashPanel.style.bottom = '10px';
-    clashPanel.style.left = '10px';
-    
-    // Задаваме малки размери на панела:
-    clashPanel.style.width = '300px';        // Фиксирана ширина (по-тясна)
-    clashPanel.style.maxHeight = '300px';     // Ограничаваме височината, за да не се разпъва нагоре
-    clashPanel.style.overflowY = 'auto';      // Включваме скрол за списъка
-
-    clashPanel.innerHTML = `
-        <h3 style="margin:0 0 15px 0; font-size:12px;">Списък на колизиите (<span id="clashCount">0</span>)</h3>
-        <div id="clashList"></div>
-    `;
-    document.body.appendChild(clashPanel);
-}
+        this.initFlyoutPanels();
     }
 
-    setupRenderSwitchButton() {
-        if (!this.materialManager) return;
-
-        let btn = document.getElementById('renderSwitchBtn');
-        if (!btn) {
-            btn = document.createElement('button');
-            btn.id = 'renderSwitchBtn';
-            btn.innerHTML = 'PBR Реалистичен режим: ИЗКЛ';
-            btn.style.cssText = `
-                position: fixed; top: 12px; left: 20px; z-index: 50;
-                padding: 10px 16px; background: #2c3e50; color: white;
-                border: 1px solid #34495e; border-radius: 6px; cursor: pointer;
-                font-weight: bold; font-size: 13px; box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-                transition: all 0.3s ease;
-            `;
-            document.body.appendChild(btn);
+    // Изчистен метод без излишни PointerLock условия
+    toggleFirstPersonNavigation() {
+        if (!this.cameraManager) {
+            console.error("CameraManager липсва!");
+            return;
         }
 
-        const oldSlider = document.getElementById('pbrScaleContainer');
-        if (oldSlider) oldSlider.remove();
+        let isFP = false;
 
-        btn.onclick = () => {
-            const isRealistic = this.materialManager.toggleRealisticMode(this.models);
-            btn.innerHTML = isRealistic ? 'PBR Реалистичен режим: ВКЛ' : 'PBR Реалистичен режим: ИЗКЛ';
-            btn.style.background = isRealistic ? '#27ae60' : '#2c3e50';
-        };
-    } 
+        // Първи опит: през стандартния метод
+        if (typeof this.cameraManager.toggleFirstPersonMode === 'function') {
+            isFP = this.cameraManager.toggleFirstPersonMode();
+        } 
+        // Втори опит (резервен): ако режимът се съхранява в променлива
+        else if (typeof this.cameraManager.setFirstPersonMode === 'function') {
+            this.cameraManager.isFirstPerson = !this.cameraManager.isFirstPerson;
+            this.cameraManager.setFirstPersonMode(this.cameraManager.isFirstPerson);
+            isFP = this.cameraManager.isFirstPerson;
+        }
 
-    setupEnvironmentUI() {
-        if (!this.envManager) return;
+        // Показване / скриване на подсказката
+        const fpInst = document.getElementById('fpInstructions');
+        if (fpInst) {
+            fpInst.style.display = isFP ? 'block' : 'none';
+            fpInst.classList.toggle('hidden', !isFP);
+        }
 
-        let panel = document.getElementById('envPanelUI');
-        if (!panel) {
-            panel = document.createElement('div');
-            panel.id = 'envPanelUI';
-            panel.style.cssText = `
-                position: fixed; top: 210px; right: 20px; z-index: 50;
-                background: rgba(30, 77, 170, 0.9); color: white;
-                padding: 12px 16px; border-radius: 8px; width: 220px;
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                box-shadow: 0 4px 15px rgba(0,0,0,0.4); font-size: 12px;
-            `;
+        // Оцветяване на бутона в червено, когато е активен
+        const btnFP = document.getElementById('btnFirstPerson');
+        if (btnFP) {
+            btnFP.style.background = isFP ? '#e74c3c' : 'rgba(255, 255, 255, 0.08)';
+            btnFP.style.boxShadow = isFP ? '0 0 10px #e74c3c' : 'none';
+        }
+    }
 
-            panel.innerHTML = `
-                <div style="font-weight:bold; margin-bottom:8px; font-size:13px; color:#4a90e2; border-bottom:1px solid #333; padding-bottom:4px;">
+   toggleSidePanel(panelId, targetBtn) {
+    const panel = document.getElementById(panelId);
+    if (!panel) return;
+
+    // Всички панели в менюто (включително и за управление на обект)
+    const allPanels = ['infoPanel', 'envPanelUI', 'elementPanel', 'clashPanel', 'objectEditorPanel'];
+    allPanels.forEach(id => {
+        if (id !== panelId) {
+            const p = document.getElementById(id);
+            if (p) p.style.display = 'none';
+        }
+    });
+
+    if (panel.style.display === 'block' || panel.style.display === 'flex') {
+        panel.style.display = 'none';
+        this.activePanelId = null;
+        if (targetBtn) targetBtn.style.background = 'rgba(255, 255, 255, 0.08)';
+    } else {
+        panel.style.display = (panelId === 'elementPanel') ? 'flex' : 'block';
+        this.activePanelId = panelId;
+        if (targetBtn) targetBtn.style.background = '#0077b6';
+
+        if (panelId === 'infoPanel') {
+            this.renderPropertiesContent();
+        }
+
+        if (panelId === 'clashPanel' && !this.isClashActive) {
+            this.runClashDetection();
+        }
+    }
+}
+
+    /* =========================================================
+       2. ИЗСКАЧАЩИ ПАНЕЛИ ДО МЕНЮТО (FLYOUTS)
+       ========================================================= */
+    initFlyoutPanels() {
+        const basePanelStyle = `
+            position: fixed;
+            top: 50%;
+            right: 85px;
+            transform: translateY(-50%);
+            width: 270px;
+            background: rgba(18, 24, 38, 0.92);
+            backdrop-filter: blur(16px);
+            color: white;
+            padding: 16px;
+            border-radius: 16px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            font-size: 13px;
+            display: none;
+            z-index: 90;
+        `;
+
+        // ПАНЕЛ ИНФОРМАЦИЯ ЗА ОБЕКТА (Преместен вдясно до менюто)
+        let infoPanel = document.getElementById('infoPanel');
+        if (!infoPanel) {
+            infoPanel = document.createElement('div');
+            infoPanel.id = 'infoPanel';
+            infoPanel.style.cssText = basePanelStyle;
+            infoPanel.innerHTML = `<div id="infoContent">Кликнете върху обект за преглед.</div>`;
+            document.body.appendChild(infoPanel);
+        }
+        this.infoPanel = infoPanel;
+
+        // АТМОСФЕРА
+        let envPanel = document.getElementById('envPanelUI');
+        if (!envPanel) {
+            envPanel = document.createElement('div');
+            envPanel.id = 'envPanelUI';
+            envPanel.style.cssText = basePanelStyle;
+            envPanel.innerHTML = `
+                <div style="font-weight:bold; margin-bottom:12px; font-size:14px; color:#90e0ef; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:6px;">
                     🌅 Атмосфера & Осветление
                 </div>
-
-                <div style="margin-bottom:8px;">
+                <div style="margin-bottom:10px;">
                     <label style="display:block; margin-bottom:4px; color:#ccc;">Режим:</label>
-                    <select id="envSelectUI" style="width:100%; padding:5px; background:#111; color:white; border:1px solid #444; border-radius:4px; outline:none; cursor:pointer;">
+                    <select id="envSelectUI" style="width:100%; padding:6px; background:#111827; color:white; border:1px solid #374151; border-radius:6px; outline:none;">
                         <option value="day">☀️ Дневен режим</option>
                         <option value="night">🌙 Нощен режим</option>
                     </select>
                 </div>
-
-                <div style="margin-bottom:8px;">
+                <div style="margin-bottom:10px;">
                     <label style="display:block; margin-bottom:2px; color:#ccc;">Позиция на слънцето:</label>
                     <input type="range" id="sunRotUI" min="0" max="360" value="0" style="width:100%; cursor:pointer;">
                 </div>
-
                 <div>
                     <label style="display:block; margin-bottom:2px; color:#ccc;">Яркост (Експозиция):</label>
                     <input type="range" id="exposureUI" min="0.2" max="2.5" step="0.1" value="1.0" style="width:100%; cursor:pointer;">
                 </div>
             `;
-            document.body.appendChild(panel);
+            document.body.appendChild(envPanel);
+
+            document.getElementById('envSelectUI')?.addEventListener('change', (e) => this.envManager?.setEnvironment(e.target.value));
+            document.getElementById('sunRotUI')?.addEventListener('input', (e) => this.envManager?.setSunRotation(parseFloat(e.target.value)));
+            document.getElementById('exposureUI')?.addEventListener('input', (e) => this.envManager?.setLightIntensity(parseFloat(e.target.value)));
         }
 
-        document.getElementById('envSelectUI')?.addEventListener('change', (e) => {
-            this.envManager.setEnvironment(e.target.value);
-        });
-
-        document.getElementById('sunRotUI')?.addEventListener('input', (e) => {
-            this.envManager.setSunRotation(parseFloat(e.target.value));
-        });
-
-        document.getElementById('exposureUI')?.addEventListener('input', (e) => {
-            this.envManager.setLightIntensity(parseFloat(e.target.value));
-        });
-    } 
-
-    initInfoPanel() {
-        let panel = document.getElementById('infoPanel');
-        if (!panel) {
-            panel = document.createElement('div');
-            panel.id = 'infoPanel';
-            panel.className = 'info-panel';
-            panel.style.cssText = `
-                position: fixed; top: 60px; left: 20px;
-                background: rgba(56, 139, 186, 0.85); color: white;
-                padding: 12px; border-radius: 6px;
-                font-size: 13px; width: 220px; display: none; z-index: 40;
-                border: 1px solid rgba(255,255,255,0.1);
+        // ЕЛЕМЕНТИ
+        let elementPanel = document.getElementById('elementPanel');
+        if (!elementPanel) {
+            elementPanel = document.createElement('div');
+            elementPanel.id = 'elementPanel';
+            elementPanel.style.cssText = basePanelStyle + ` flex-direction: column; max-height: 380px;`;
+            elementPanel.innerHTML = `
+                <h3 style="margin: 0 0 10px 0; font-size: 14px; color:#90e0ef;">📑 Елементи в модела</h3>
+                <div style="display:flex; gap:6px; margin-bottom: 8px;">
+                    <button id="showAllBtn" style="flex:1; padding:5px; background:#0077b6; color:white; border:none; border-radius:4px; cursor:pointer;">Покажи всички</button>
+                    <button id="hideAllBtn" style="flex:1; padding:5px; background:#374151; color:white; border:none; border-radius:4px; cursor:pointer;">Скрий всички</button>
+                </div>
+                <div id="elementList" style="max-height: 280px; overflow-y: auto; padding-right: 5px;"></div>
             `;
-            document.body.appendChild(panel);
+            document.body.appendChild(elementPanel);
         }
-        this.infoPanel = panel;
+
+        // КОЛИЗИИ
+        let clashPanel = document.getElementById('clashPanel');
+        if (!clashPanel) {
+            clashPanel = document.createElement('div');
+            clashPanel.id = 'clashPanel';
+            clashPanel.style.cssText = basePanelStyle + ` max-height: 380px; overflow-y: auto;`;
+            clashPanel.innerHTML = `
+                <h3 style="margin:0 0 10px 0; font-size:14px; color:#e74c3c;">⚡ Колизии (<span id="clashCount">0</span>)</h3>
+                <div id="clashList"></div>
+            `;
+            document.body.appendChild(clashPanel);
+        }
     }
 
+    /* =========================================================
+       3. ИНФОРМАЦИЯ ЗА ОБЕКТА (УПРАВЛЕНИЕ)
+       ========================================================= */
     setupClickSelection() {
         if (this.cameraManager) {
-            this.cameraManager.onObjectSelected = (data) => this.showPropertiesPanel(data);
+            this.cameraManager.onObjectSelected = (data) => this.updateObjectPropertiesData(data);
         }
     }
 
-    showPropertiesPanel(data) {
+    // Обновява данните без да отваря панела автоматично
+    updateObjectPropertiesData(data) {
         this.currentlySelected = data.mesh;
+        this.selectedObjectData = data; // Запазваме данните за обекта
+
+        // Ако панелът вече е отворен от потребителя, го обновяваме веднага
+        const infoPanel = document.getElementById('infoPanel');
+        if (infoPanel && infoPanel.style.display === 'block') {
+            this.renderPropertiesContent();
+        }
+    }
+
+    // Функция за визуализиране на съдържанието в панела
+    renderPropertiesContent() {
+        if (!this.infoPanel) return;
+
+        if (!this.currentlySelected || !this.selectedObjectData) {
+            this.infoPanel.innerHTML = `
+                <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:6px; margin-bottom:8px;">
+                    <strong style="font-size:14px; color:#90e0ef;">Информация за обекта</strong>
+                    <button id="closeInfoBtn" style="background:none; border:none; color:#aaa; cursor:pointer; font-size:14px;">✕</button>
+                </div>
+                <div style="color:#aaa; font-style:italic;">Моля, кликнете върху обект в модела, за да видите свойствата му.</div>
+            `;
+            document.getElementById('closeInfoBtn').onclick = () => { this.infoPanel.style.display = 'none'; };
+            return;
+        }
+
+        const data = this.selectedObjectData;
         const expressID = data.expressID;
         const slot = data.modelSlot;
         const typeName = this.getTypeName(data.typeCode);
@@ -311,37 +424,44 @@ if (!clashPanel) {
 
         const currentColor = '#' + data.mesh.material.color.getHexString();
         const currentMatType = data.mesh.userData.materialType || 'plaster';
-
-        this.infoPanel.style.display = 'block';
+        const currentScale = data.mesh.scale.x || 1.0;
 
         this.infoPanel.innerHTML = `
-            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #444; padding-bottom:6px; margin-bottom:8px;">
-                <strong style="font-size:14px;">Информация за обекта</strong>
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.1); padding-bottom:6px; margin-bottom:8px;">
+                <strong style="font-size:14px; color:#90e0ef;">Информация за обекта</strong>
                 <button id="closeInfoBtn" style="background:none; border:none; color:#aaa; cursor:pointer; font-size:14px;">✕</button>
             </div>
-            <strong>Модел слот:</strong> ${slot}<br>
-            <strong>Тип:</strong> ${typeName}<br>
-            <strong>Име:</strong> ${name}<br>
-            <strong>GUID:</strong> ${guid}<br>
-            <strong>Express ID:</strong> ${expressID}<br>
-            <hr style="border:0; border-top:1px solid #444; margin:8px 0;" />
+            <b>Модел слот:</b> ${slot}<br>
+            <b>Тип:</b> ${typeName}<br>
+            <b>Име:</b> ${name}<br>
+            <b>GUID:</b> ${guid}<br>
+            <b>Express ID:</b> ${expressID}<br>
+            <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin:8px 0;" />
             
             <div style="margin-bottom: 8px;">
                 <label style="display:block; margin-bottom:4px; font-size:12px; color:#ccc;">Текстура / Материал:</label>
-                <select id="materialSelector" style="width:100%; padding:5px; background:#222; color:white; border:1px solid #555; border-radius:4px; outline:none;">
+                <select id="materialSelector" style="width:100%; padding:5px; background:#111827; color:white; border:1px solid #374151; border-radius:4px; outline:none;">
                     <option value="default" ${currentMatType === 'default' ? 'selected' : ''}>Чертожен вид</option>
                     <option value="plaster" ${currentMatType === 'plaster' ? 'selected' : ''}>Мазилка</option>
-                    <option value="stone" ${currentMatType === 'stone' ? 'selected' : ''}>Каменна облицовка (Релеф)</option>
+                    <option value="stone" ${currentMatType === 'stone' ? 'selected' : ''}>Каменна облицовка</option>
                     <option value="wood" ${currentMatType === 'wood' ? 'selected' : ''}>Дърво</option>
                     <option value="glass" ${currentMatType === 'glass' ? 'selected' : ''}>Стъкло</option>
                     <option value="metal" ${currentMatType === 'metal' ? 'selected' : ''}>Метал</option>
                 </select>
             </div>
 
-            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer;">
+            <label style="display:flex; align-items:center; justify-content:space-between; cursor:pointer; margin-bottom: 8px;">
                 <span>Нюанс / Цвят:</span>
                 <input type="color" id="colorPicker" value="${currentColor}" style="border:none; width:28px; height:28px; cursor:pointer; background:none;">
             </label>
+
+            <hr style="border:0; border-top:1px solid rgba(255,255,255,0.1); margin:8px 0;" />
+            <div style="margin-bottom: 8px;">
+                <label style="display:block; margin-bottom:2px; font-size:12px; color:#ccc;">Мащабиране (<span id="scaleValLabel">${currentScale.toFixed(1)}</span>x):</label>
+                <input type="range" id="objectScaleSlider" min="0.1" max="3.0" step="0.1" value="${currentScale}" style="width:100%; cursor:pointer;">
+            </div>
+
+            <button id="deleteObjectBtn" style="width:100%; background:#e74c3c; color:white; border:none; padding:6px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:bold;">🗑 Изтрий обекта</button>
         `;
 
         document.getElementById('closeInfoBtn').onclick = () => {
@@ -363,8 +483,58 @@ if (!clashPanel) {
 
         document.getElementById('colorPicker')?.addEventListener('input', handleMaterialUpdate);
         document.getElementById('materialSelector')?.addEventListener('change', handleMaterialUpdate);
+
+        document.getElementById('objectScaleSlider')?.addEventListener('input', (e) => {
+            const factor = parseFloat(e.target.value);
+            document.getElementById('scaleValLabel').textContent = factor.toFixed(1);
+            this.scaleSelectedObject(factor);
+        });
+
+        document.getElementById('deleteObjectBtn')?.addEventListener('click', () => {
+            this.deleteSelectedObject();
+        });
     }
 
+    scaleSelectedObject(factor) {
+        if (!this.currentlySelected) return;
+        this.currentlySelected.scale.set(factor, factor, factor);
+        this.currentlySelected.updateMatrixWorld();
+    }
+
+    deleteSelectedObject() {
+        if (!this.currentlySelected) return;
+
+        this.deletedObjectsStack.push({
+            mesh: this.currentlySelected,
+            visible: this.currentlySelected.visible,
+            scale: this.currentlySelected.scale.clone()
+        });
+
+        this.currentlySelected.visible = false;
+        this.currentlySelected.scale.set(0, 0, 0);
+        this.currentlySelected.updateMatrixWorld();
+
+        this.infoPanel.style.display = 'none';
+        this.currentlySelected = null;
+    }
+
+    restoreLastDeletedObject() {
+        if (this.deletedObjectsStack.length === 0) {
+            alert('Няма изтрити обекти за възстановяване.');
+            return;
+        }
+
+        const lastDeleted = this.deletedObjectsStack.pop();
+        if (lastDeleted && lastDeleted.mesh) {
+            lastDeleted.mesh.visible = true;
+            lastDeleted.mesh.scale.copy(lastDeleted.scale);
+            lastDeleted.mesh.updateMatrixWorld();
+        }
+    }
+
+    /* =========================================================
+       4. ПАНЕЛ ЕЛЕМЕНТИ И ПРОВЕРКА ЗА КОЛИЗИИ
+       ========================================================= */
     buildElementPanel() {
         const elementList = document.getElementById('elementList');
         if (!elementList) return;
@@ -417,12 +587,6 @@ if (!clashPanel) {
             elementList.appendChild(row);
         }
 
-        const elementPanel = document.getElementById('elementPanel');
-        if (elementPanel) {
-            elementPanel.classList.remove('hidden');
-            elementPanel.style.display = 'flex';
-        }
-
         const showBtn = document.getElementById('showAllBtn');
         if (showBtn) showBtn.onclick = () => this.toggleAllElements(true);
 
@@ -439,149 +603,121 @@ if (!clashPanel) {
     }
 
     setupClashDetection() {
-    // Флаг за следене дали режимът е активен
-    this.isClashActive = false;
-}
+        this.isClashActive = false;
+    }
 
-runClashDetection() {
-    this.clearClashMarkers();
-    this.detectedClashes = [];
-    
-    const clashList = document.getElementById('clashList');
-    if (clashList) clashList.innerHTML = '';
+    runClashDetection() {
+        this.clearClashMarkers();
+        this.detectedClashes = [];
 
-    const extractInstanceBoxes = (meshes, typeFilter) => {
-        const boxes = [];
-        const tempMatrix = new THREE.Matrix4();
-        const tempBox = new THREE.Box3();
+        const extractInstanceBoxes = (meshes, typeFilter) => {
+            const boxes = [];
+            const tempMatrix = new THREE.Matrix4();
+            const tempBox = new THREE.Box3();
 
-        meshes.forEach(mesh => {
-            if (!mesh.userData || !mesh.visible) return;
-            if (typeFilter && typeFilter.length > 0 && !typeFilter.includes(mesh.userData.typeCode)) return;
-            if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+            meshes.forEach(mesh => {
+                if (!mesh.userData || !mesh.visible) return;
+                if (typeFilter && typeFilter.length > 0 && !typeFilter.includes(mesh.userData.typeCode)) return;
+                if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
 
-            if (mesh.isInstancedMesh) {
-                for (let i = 0; i < mesh.count; i++) {
-                    mesh.getMatrixAt(i, tempMatrix);
-                    const worldMatrix = tempMatrix.premultiply(mesh.matrixWorld);
-                    tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(worldMatrix);
+                if (mesh.isInstancedMesh) {
+                    for (let i = 0; i < mesh.count; i++) {
+                        mesh.getMatrixAt(i, tempMatrix);
+                        const worldMatrix = tempMatrix.premultiply(mesh.matrixWorld);
+                        tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(worldMatrix);
 
-                    const instData = mesh.userData.instancesData ? mesh.userData.instancesData[i] : null;
-                    const expressID = instData ? instData.expressID : mesh.userData.expressID;
+                        const instData = mesh.userData.instancesData ? mesh.userData.instancesData[i] : null;
+                        const expressID = instData ? instData.expressID : mesh.userData.expressID;
 
+                        boxes.push({
+                            mesh,
+                            instanceId: i,
+                            box: tempBox.clone(),
+                            expressID: expressID,
+                            typeCode: mesh.userData.typeCode
+                        });
+                    }
+                } else {
+                    tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
                     boxes.push({
                         mesh,
-                        instanceId: i,
+                        instanceId: null,
                         box: tempBox.clone(),
-                        expressID: expressID,
+                        expressID: mesh.userData.expressID,
                         typeCode: mesh.userData.typeCode
                     });
                 }
-            } else {
-                tempBox.copy(mesh.geometry.boundingBox).applyMatrix4(mesh.matrixWorld);
-                boxes.push({
-                    mesh,
-                    instanceId: null,
-                    box: tempBox.clone(),
-                    expressID: mesh.userData.expressID,
-                    typeCode: mesh.userData.typeCode
-                });
-            }
-        });
+            });
 
-        return boxes;
-    };
+            return boxes;
+        };
 
-    const structBoxes = extractInstanceBoxes(this.models[1]?.meshes || [], this.structuralTypes);
-    const mepBoxes = extractInstanceBoxes(this.models[2]?.meshes || [], this.mepTypes);
+        const structBoxes = extractInstanceBoxes(this.models[1]?.meshes || [], this.structuralTypes);
+        const mepBoxes = extractInstanceBoxes(this.models[2]?.meshes || [], this.mepTypes);
 
-    const MIN_OVERLAP_VOLUME = 0.00005; 
+        const MIN_OVERLAP_VOLUME = 0.00005; 
 
-    for (const itemA of structBoxes) {
-        for (const itemB of mepBoxes) {
-            if (itemA.mesh === itemB.mesh && itemA.instanceId === itemB.instanceId) continue;
+        for (const itemA of structBoxes) {
+            for (const itemB of mepBoxes) {
+                if (itemA.mesh === itemB.mesh && itemA.instanceId === itemB.instanceId) continue;
 
-            if (itemA.box.intersectsBox(itemB.box)) {
-                const intersectionBox = itemA.box.clone().intersect(itemB.box);
-                const size = new THREE.Vector3();
-                intersectionBox.getSize(size);
-                const volume = size.x * size.y * size.z;
+                if (itemA.box.intersectsBox(itemB.box)) {
+                    const intersectionBox = itemA.box.clone().intersect(itemB.box);
+                    const size = new THREE.Vector3();
+                    intersectionBox.getSize(size);
+                    const volume = size.x * size.y * size.z;
 
-                if (volume > MIN_OVERLAP_VOLUME) {
-                    const center = new THREE.Vector3();
-                    intersectionBox.getCenter(center);
+                    if (volume > MIN_OVERLAP_VOLUME) {
+                        const center = new THREE.Vector3();
+                        intersectionBox.getCenter(center);
 
-                    this.detectedClashes.push({
-                        itemA, itemB, center, volume,
-                        intersectionBox: intersectionBox.clone(),
-                        idA: itemA.expressID,
-                        idB: itemB.expressID
-                    });
+                        this.detectedClashes.push({
+                            itemA, itemB, center, volume,
+                            intersectionBox: intersectionBox.clone(),
+                            idA: itemA.expressID,
+                            idB: itemB.expressID
+                        });
+                    }
                 }
             }
         }
+
+        this.enableXRayMode();
+        this.isClashActive = true;
+
+        const clashCountLabel = document.getElementById('clashCount');
+        if (clashCountLabel) clashCountLabel.textContent = this.detectedClashes.length;
+
+        this.buildClashInspectorUI();
     }
 
-    this.enableXRayMode();
-    this.isClashActive = true;
+    exitClashMode() {
+        this.isClashActive = false;
 
-    // Външният бутон става червен с опция за изход
-    const clashBtn = document.getElementById('clashBtn');
-    if (clashBtn) {
-        clashBtn.textContent = `❌ Изход от колизии (${this.detectedClashes.length})`;
-        clashBtn.style.background = '#e74c3c';
+        const clashPanel = document.getElementById('clashPanel');
+        if (clashPanel) clashPanel.style.display = 'none';
+
+        this.clearClashMarkers();
+        this.detectedClashes = [];
+
+        const allMeshes = [
+            ...(this.models[1]?.meshes || []),
+            ...(this.models[2]?.meshes || [])
+        ];
+
+        allMeshes.forEach(mesh => {
+            if (!mesh.material) return;
+            const disableXRay = (mat) => {
+                mat.transparent = false;
+                mat.opacity = 1.0;
+                mat.depthWrite = true;
+                mat.needsUpdate = true;
+            };
+            if (Array.isArray(mesh.material)) mesh.material.forEach(disableXRay);
+            else disableXRay(mesh.material);
+        });
     }
 
-    const clashCountLabel = document.getElementById('clashCount');
-    if (clashCountLabel) clashCountLabel.textContent = this.detectedClashes.length;
-
-    this.buildClashInspectorUI();
-}
-
- exitClashMode() {
-    this.isClashActive = false;
-
-    // 1. Скриване на панела за колизии
-    const clashPanel = document.getElementById('clashPanel');
-    if (clashPanel) {
-        clashPanel.classList.add('hidden');
-        clashPanel.style.display = 'none';
-    }
-
-    // 2. Почистване на маркерите
-    this.clearClashMarkers();
-    this.detectedClashes = [];
-
-    // 3. Възстановяване на нормалния вид на модела (Изход от X-Ray)
-    const allMeshes = [
-        ...(this.models[1]?.meshes || []),
-        ...(this.models[2]?.meshes || [])
-    ];
-
-    allMeshes.forEach(mesh => {
-        if (!mesh.material) return;
-
-        const disableXRay = (mat) => {
-            mat.transparent = false;
-            mat.opacity = 1.0;
-            mat.depthWrite = true; // Връщаме нормалното рендиране на дълбочина
-            mat.needsUpdate = true;
-        };
-
-        if (Array.isArray(mesh.material)) {
-            mesh.material.forEach(disableXRay);
-        } else {
-            disableXRay(mesh.material);
-        }
-    });
-
-    // 4. Връщане на бутона
-    const clashBtn = document.getElementById('clashBtn');
-    if (clashBtn) {
-        clashBtn.textContent = 'Провери за колизии';
-        clashBtn.style.background = '';
-    }
-}
     createClashMarker(box3) {
         if (!this.clashMarkersGroup) {
             this.clashMarkersGroup = new THREE.Group();
@@ -590,7 +726,6 @@ runClashDetection() {
         }
 
         const helper = new THREE.Box3Helper(box3, 0xff0000);
-        
         const size = new THREE.Vector3();
         box3.getSize(size);
         const center = new THREE.Vector3();
@@ -612,58 +747,52 @@ runClashDetection() {
         }
     }
 
-     enableXRayMode() {
-    // Всички 3D обекти от заредените модели
-    const allMeshes = [
-        ...(this.models[1]?.meshes || []),
-        ...(this.models[2]?.meshes || [])
-    ];
+    enableXRayMode() {
+        const allMeshes = [
+            ...(this.models[1]?.meshes || []),
+            ...(this.models[2]?.meshes || [])
+        ];
 
-    allMeshes.forEach(mesh => {
-        if (!mesh.material) return;
-
-        // Функция за налагане на полупрозрачност (X-Ray ефект)
-        const applyXRay = (mat) => {
-            mat.transparent = true;
-            mat.opacity = 0.25; // Прозрачност на сградата
-            mat.depthWrite = false; // Важно: предотвратява графични артефакти при застъпване
-            mat.needsUpdate = true;
-        };
-
-        if (Array.isArray(mesh.material)) {
-            mesh.material.forEach(applyXRay);
-        } else {
-            applyXRay(mesh.material);
-        }
-    });
-}
+        allMeshes.forEach(mesh => {
+            if (!mesh.material) return;
+            const applyXRay = (mat) => {
+                mat.transparent = true;
+                mat.opacity = 0.25;
+                mat.depthWrite = false;
+                mat.needsUpdate = true;
+            };
+            if (Array.isArray(mesh.material)) mesh.material.forEach(applyXRay);
+            else applyXRay(mesh.material);
+        });
+    }
 
     buildClashInspectorUI() {
-    const clashList = document.getElementById('clashList');
-    if (!clashList) return;
+        const clashList = document.getElementById('clashList');
+        if (!clashList) return;
 
-    clashList.innerHTML = '';
+        clashList.innerHTML = '';
 
-    // Бутон най-отгоре в панела за бърз изход
-    const exitBtn = document.createElement('button');
-    exitBtn.style.cssText = 'width: 100%; margin-bottom: 4px; background: #555; color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px;';
-    exitBtn.textContent = '🚪 Излез и затвори колизиите';
-    exitBtn.addEventListener('click', () => this.exitClashMode());
-    clashList.appendChild(exitBtn);
+        const exitBtn = document.createElement('button');
+        exitBtn.style.cssText = 'width: 100%; margin-bottom: 6px; background: #374151; color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px;';
+        exitBtn.textContent = '🚪 Излез от колизиите';
+        exitBtn.addEventListener('click', () => this.exitClashMode());
+        clashList.appendChild(exitBtn);
 
-    if (this.detectedClashes.length === 0) {
-        const noClashMsg = document.createElement('p');
-        noClashMsg.style.cssText = 'color:#2ecc71; padding:5px; margin:0; font-size:12px;';
-        noClashMsg.textContent = '✓ Няма открити колизии.';
-        clashList.appendChild(noClashMsg);
-    } else {
-        const showAllBtn = document.createElement('button');
-        showAllBtn.style.cssText = 'width: 100%; margin-bottom: 5px; background: #e74c3c; color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px;';
-        showAllBtn.textContent = '👁 Покажи всички колизии наведнъж';
-        showAllBtn.addEventListener('click', () => this.highlightAllClashes());
-        clashList.appendChild(showAllBtn);
+        if (this.detectedClashes.length === 0) {
+            const noClashMsg = document.createElement('p');
+            noClashMsg.style.cssText = 'color:#2ecc71; padding:5px; margin:0; font-size:12px;';
+            noClashMsg.textContent = '✓ Няма открити колизии.';
+            clashList.appendChild(noClashMsg);
+        } else {
+            // ВЪЗСТАНОВЕН БУТОН ЗА ПОКАЗВАНЕ НА ВСИЧКИ КОЛИЗИИ
+            const showAllBtn = document.createElement('button');
+            showAllBtn.style.cssText = 'width: 100%; margin-bottom: 8px; background: #e74c3c; color: white; border: none; padding: 6px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 12px;';
+            showAllBtn.textContent = '👁 Покажи всички колизии наведнъж';
+            showAllBtn.addEventListener('click', () => this.highlightAllClashes());
+            clashList.appendChild(showAllBtn);
 
-        this.detectedClashes.forEach((clash, index) => {
+
+           this.detectedClashes.forEach((clash, index) => {
             const item = document.createElement('div');
             item.style.cssText = 'padding: 4px; margin: 2px 0; background: rgba(250,250,250,0.06); border-left: 2px solid #e74c3c; cursor: pointer; border-radius: 3px; transition: 0.2s;';
 
@@ -687,21 +816,12 @@ runClashDetection() {
             clashList.appendChild(item);
         });
     }
-
-    const clashPanel = document.getElementById('clashPanel');
-    if (clashPanel) {
-        clashPanel.classList.remove('hidden');
-        clashPanel.style.display = 'block';
     }
-}
 
     focusOnClash(clash) {
-        const targetPos = clash.center.clone();
-
         if (this.cameraManager) {
-            this.cameraManager.focusOn(targetPos, 2.5);
+            this.cameraManager.focusOn(clash.center.clone(), 2.5);
         }
-
         this.enableXRayMode();
 
         const highlightElement = (item, colorHex) => {
@@ -725,10 +845,6 @@ runClashDetection() {
     }
 
     highlightAllClashes() {
-        if (this.cameraManager) {
-            this.cameraManager.isClashFocused = false;
-        }
-
         this.enableXRayMode();
         this.clearClashMarkers();
 
@@ -738,7 +854,7 @@ runClashDetection() {
             const setMat = (m) => {
                 m.transparent = false;
                 m.opacity = 1.0;
-                m.color?.setHex(colorHex);
+                if (m.color) m.color.setHex(colorHex);
             };
             if (Array.isArray(mesh.material)) mesh.material.forEach(setMat);
             else setMat(mesh.material);

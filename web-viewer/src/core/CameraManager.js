@@ -163,27 +163,57 @@ export class CameraManager {
         });
     }
 
-    setupUIEvents() {
-        // Използваме делегиране на събития върху целия document,
-        // за да хващаме клика дори ако бутонът се генерира динамично по-късно
-        document.addEventListener('click', (event) => {
-            const navModeBtn = event.target.closest('#navModeBtn');
-            if (!navModeBtn) return;
+    // 1. Добави този метод в CameraManager, за да може BIMDataInspector да го извиква директно:
+toggleFirstPersonMode() {
+    if (!this.isFirstPerson) {
+        this.orbitControls.enabled = false;
+        const currentPos = this.engine.camera.position.clone();
+        this.fpControls.lock();
+        this.engine.camera.position.set(
+            currentPos.x,
+            currentPos.y < this.PLAYER_HEIGHT ? this.PLAYER_HEIGHT : currentPos.y,
+            currentPos.z
+        );
+    } else {
+        this.fpControls.unlock();
+    }
+    
+    // Връща новия статус (true/false)
+    return this.isFirstPerson;
+}
 
-            if (!this.isFirstPerson) {
-                this.orbitControls.enabled = false;
-                const currentPos = this.engine.camera.position.clone();
-                this.fpControls.lock();
-                this.engine.camera.position.set(
-                    currentPos.x,
-                    currentPos.y < this.PLAYER_HEIGHT ? this.PLAYER_HEIGHT : currentPos.y,
-                    currentPos.z
-                );
-            } else {
-                this.fpControls.unlock();
+// 2. Обнови setupUIEvents() да слуша за новия ID (#btnFirstPerson) и стария (#navModeBtn) за всеки случай:
+setupUIEvents() {
+    document.addEventListener('click', (event) => {
+        // Търси и двата възможни бутона (новия #btnFirstPerson и стария #navModeBtn)
+        const fpBtn = event.target.closest('#btnFirstPerson, #navModeBtn');
+        if (!fpBtn) return;
+
+        this.toggleFirstPersonMode();
+    });
+
+    // Следим събитията за PointerLockControls, за да поддържаме флагът isFirstPerson винаги точен
+    if (this.fpControls) {
+        this.fpControls.addEventListener('lock', () => {
+            this.isFirstPerson = true;
+            const fpInst = document.getElementById('fpInstructions');
+            if (fpInst) {
+                fpInst.style.display = 'block';
+                fpInst.classList.remove('hidden');
+            }
+        });
+
+        this.fpControls.addEventListener('unlock', () => {
+            this.isFirstPerson = false;
+            this.orbitControls.enabled = true;
+            const fpInst = document.getElementById('fpInstructions');
+            if (fpInst) {
+                fpInst.style.display = 'none';
+                fpInst.classList.add('hidden');
             }
         });
     }
+}
 
     // ТОВА Е МЕТОДЪТ ЗА КОЛИЗИИ:
     focusOn(targetPos, distance = 2.0) {
