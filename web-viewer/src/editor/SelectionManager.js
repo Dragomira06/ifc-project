@@ -11,15 +11,12 @@ export class SelectionManager {
         this.raycaster = new THREE.Raycaster();
         this.mouse = new THREE.Vector2();
 
-        // Масив за история на изтритите обекти
-        this.deletedObjects = [];
-
-        // 1. Инициализиране на 3D стрелките
+        // 1. Инициализиране на 3D стрелките (Gizmo)
         this.transformControls = new TransformControls(
             this.engine.camera, 
             this.engine.renderer.domElement
         );
-        this.transformControls.setSize(0.75); // Визуален размер на стрелките
+        this.transformControls.setSize(0.75);
         this.engine.scene.add(this.transformControls);
 
         // Пауза на камерата при плъзгане със стрелките
@@ -29,7 +26,6 @@ export class SelectionManager {
             }
         });
 
-        this.createInspectorUI();
         this.initEvents();
     }
 
@@ -51,7 +47,6 @@ export class SelectionManager {
             
             const intersects = this.raycaster.intersectObjects(this.engine.scene.children, true);
 
-            // Филтрираме стрелките да не се селектират сами себе си
             const validHits = intersects.filter(hit => 
                 hit.object.type === 'Mesh' && 
                 !hit.object.isTransformControls && 
@@ -72,170 +67,14 @@ export class SelectionManager {
         
         // Закрепваме 3D стрелките към обекта
         this.transformControls.attach(mesh);
-        
-        // Обновяваме данните в панела (без да го показваме автоматично)
-        this.updateUI();
 
-        if (this.inspector && typeof this.inspector.selectMesh === 'function') {
-            this.inspector.selectMesh(mesh);
+        if (this.inspector && typeof this.inspector.updateObjectPropertiesData === 'function') {
+            this.inspector.updateObjectPropertiesData({ mesh: mesh });
         }
     }
 
     deselect() {
         this.selectedMesh = null;
         this.transformControls.detach();
-    }
-
-    createInspectorUI() {
-        this.panel = document.createElement('div');
-        this.panel.id = 'objectEditorPanel';
-        
-        // Позиционираме панела отляво на страничната лента с икони (right: 90px)
-        this.panel.style.cssText = `
-            position: fixed;
-            top: 50%;
-            right: 90px;
-            transform: translateY(-50%);
-            z-index: 110;
-            padding: 16px;
-            background: rgba(18, 24, 38, 0.95);
-            color: white;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 16px;
-            font-size: 13px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            display: none;
-            flex-direction: column;
-            gap: 12px;
-            backdrop-filter: blur(12px);
-            font-family: sans-serif;
-            min-width: 220px;
-        `;
-
-        this.panel.innerHTML = `
-            <div style="font-weight: bold; border-bottom: 1px solid rgba(255, 255, 255, 0.1); padding-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
-                <span>🛠️ Управление на обект</span>
-                <span id="closeEditorBtn" style="cursor: pointer; color: #ff5e57; font-size: 16px; padding: 0 4px;">✕</span>
-            </div>
-            
-            <div style="display: flex; flex-direction: column; gap: 6px;">
-                <label style="font-size: 12px; color: #a4b0be;">📐 Индивидуален мащаб:</label>
-                <input type="range" id="objScaleInput" min="-5" max="0.7" step="0.01" value="-4" style="cursor: pointer; width: 100%;">
-                <span id="objScaleVal" style="font-size: 11px; color: #2ecc71; text-align: right; font-weight: bold;">1.0</span>
-            </div>
-
-            <div style="display: flex; gap: 8px; margin-top: 4px;">
-                <button id="deleteObjBtn" style="flex: 1; padding: 8px 6px; background: #e74c3c; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 12px; white-space: nowrap;">🗑️ Изтрий</button>
-                <button id="undoDeleteBtn" style="flex: 1; padding: 8px 6px; background: #2980b9; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 12px; white-space: nowrap;">↩️ Върни</button>
-            </div>
-        `;
-
-        document.body.appendChild(this.panel);
-
-        // Бутон Х - само скрива панела
-        this.panel.querySelector('#closeEditorBtn').onclick = () => {
-            this.panel.style.display = 'none';
-        };
-
-        // 1. Изтриване
-        this.panel.querySelector('#deleteObjBtn').onclick = () => {
-            if (this.selectedMesh) {
-                const target = this.selectedMesh;
-                const parent = target.parent || this.engine.scene;
-
-                this.deletedObjects.push({
-                    object: target,
-                    parent: parent
-                });
-
-                parent.remove(target);
-                this.deselect();
-            }
-        };
-
-        // 2. Върни последно изтрития обект (Undo)
-        this.panel.querySelector('#undoDeleteBtn').onclick = () => {
-            if (this.deletedObjects.length > 0) {
-                const lastDeleted = this.deletedObjects.pop();
-                lastDeleted.parent.add(lastDeleted.object);
-            }
-        };
-
-        // 3. Индивидуално мащабиране
-        const scaleInput = this.panel.querySelector('#objScaleInput');
-        const scaleValDisplay = this.panel.querySelector('#objScaleVal');
-
-        scaleInput.addEventListener('input', (e) => {
-            if (!this.selectedMesh) return;
-
-            const mesh = this.selectedMesh;
-            const matType = mesh.userData?.materialType;
-
-            // БЕЗОПАСНОСТ: За стъкло не променяме скалата
-            if (matType === 'glass') {
-                return;
-            }
-
-            const expValue = Math.pow(10, parseFloat(e.target.value));
-            scaleValDisplay.textContent = expValue < 0.01 ? expValue.toFixed(5) : expValue.toFixed(2);
-
-            // 1. Ако няма uScale (не е Triplanar материал), му прилагаме PBR материал
-            if (!mesh.material?.userData?.uScale) {
-                if (this.materialManager) {
-                    this.materialManager.applyPBRMaterial(mesh);
-                }
-            }
-
-            // 2. Ако материалът не е уникален за този обект, създаваме ново копие
-            if (!mesh.userData.hasUniqueMaterial && mesh.material) {
-                const oldMat = mesh.material;
-                
-                if (this.materialManager) {
-                    const typeToApply = matType || 'stone';
-                    const currentColor = oldMat.color ? oldMat.color.clone() : null;
-                    this.materialManager.applyPBRMaterial(mesh, typeToApply, currentColor);
-                }
-
-                mesh.userData.hasUniqueMaterial = true;
-            }
-
-            // Маркираме обекта като персонализиран
-            mesh.userData.isCustomScaled = true;
-
-            // 3. Задаваме новата стойност на мащаба
-            if (mesh.material?.userData?.uScale) {
-                mesh.material.userData.uScale.value = expValue;
-            }
-        });
-    }
-
-    updateUI() {
-        if (!this.selectedMesh || !this.panel) return;
-
-        // ⚠️ ЗАБЕЛЕЖКА: Тук вече НЯМА this.panel.style.display = 'flex';
-        // Панелът се отваря/затваря само от иконното меню!
-
-        const scaleInput = this.panel.querySelector('#objScaleInput');
-        const scaleValDisplay = this.panel.querySelector('#objScaleVal');
-
-        const mat = this.selectedMesh.material;
-        const isGlass = this.selectedMesh.userData?.materialType === 'glass';
-
-        // Ако е селектирано стъкло, деактивираме слайдера за мащаб
-        if (isGlass) {
-            scaleInput.disabled = true;
-            scaleValDisplay.textContent = "N/A (Стъкло)";
-        } else {
-            scaleInput.disabled = false;
-            // Четем текущата скала от материала и настройваме слайдера
-            if (mat && mat.userData && mat.userData.uScale) {
-                const currentVal = mat.userData.uScale.value;
-                scaleInput.value = Math.log10(currentVal);
-                scaleValDisplay.textContent = currentVal < 0.01 ? currentVal.toFixed(5) : currentVal.toFixed(2);
-            } else {
-                scaleInput.value = Math.log10(1.0);
-                scaleValDisplay.textContent = "1.00";
-            }
-        }
     }
 }

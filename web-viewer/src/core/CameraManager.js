@@ -30,6 +30,13 @@ export class CameraManager {
         this.setupClickSelection();
     }
 
+    //  Помощен метод за динамично взимане на всички видими мешове от абсолютно всички слотове
+    getAllVisibleMeshes() {
+        return Object.values(this.models)
+            .flatMap(slot => slot?.meshes || [])
+            .filter(m => m && m.visible);
+    }
+
     initControls() {
         this.orbitControls = new OrbitControls(this.engine.camera, this.engine.renderer.domElement);
         this.orbitControls.enableDamping = true;
@@ -66,12 +73,10 @@ export class CameraManager {
         this.engine.renderer.domElement.addEventListener('wheel', (event) => {
             if (this.isFirstPerson) return;
 
-            // Ако сме избрали колизия, НЕ пипаме target-а при скрол, за да може въртенето да остане около нея!
             if (this.isClashFocused) {
                 return; 
             }
 
-            // Старото свободно скролване (когато НЕ гледаме колизия):
             const vector = new THREE.Vector3();
             this.engine.camera.getWorldDirection(vector);
             const zoomSpeed = 1.5;
@@ -98,11 +103,13 @@ export class CameraManager {
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
             raycaster.setFromCamera(mouse, this.engine.camera);
-            const visibleMeshes = [...this.models[1].meshes, ...this.models[2].meshes].filter(m => m.visible);
+            
+            //  Взима динамично мешовете от ВСИЧКИ слотове
+            const visibleMeshes = this.getAllVisibleMeshes();
             const intersects = raycaster.intersectObjects(visibleMeshes);
 
             if (intersects.length > 0) {
-                this.isClashFocused = false; // При десен клик другаде излизаме от фокуса на колизията
+                this.isClashFocused = false;
                 this.orbitControls.target.copy(intersects[0].point);
                 this.orbitControls.update();
             }
@@ -118,7 +125,8 @@ export class CameraManager {
 
             this.selectionRaycaster.setFromCamera(this.mouse, this.engine.camera);
 
-            const visibleMeshes = [...this.models[1].meshes, ...this.models[2].meshes].filter(m => m.visible);
+            //  Взима динамично мешовете от ВСИЧКИ слотове
+            const visibleMeshes = this.getAllVisibleMeshes();
             const intersects = this.selectionRaycaster.intersectObjects(visibleMeshes, false);
 
             if (intersects.length > 0) {
@@ -163,70 +171,62 @@ export class CameraManager {
         });
     }
 
-    // 1. Добави този метод в CameraManager, за да може BIMDataInspector да го извиква директно:
-toggleFirstPersonMode() {
-    if (!this.isFirstPerson) {
-        this.orbitControls.enabled = false;
-        const currentPos = this.engine.camera.position.clone();
-        this.fpControls.lock();
-        this.engine.camera.position.set(
-            currentPos.x,
-            currentPos.y < this.PLAYER_HEIGHT ? this.PLAYER_HEIGHT : currentPos.y,
-            currentPos.z
-        );
-    } else {
-        this.fpControls.unlock();
+    toggleFirstPersonMode() {
+        if (!this.isFirstPerson) {
+            this.orbitControls.enabled = false;
+            const currentPos = this.engine.camera.position.clone();
+            this.fpControls.lock();
+            this.engine.camera.position.set(
+                currentPos.x,
+                currentPos.y < this.PLAYER_HEIGHT ? this.PLAYER_HEIGHT : currentPos.y,
+                currentPos.z
+            );
+        } else {
+            this.fpControls.unlock();
+        }
+        
+        return this.isFirstPerson;
     }
-    
-    // Връща новия статус (true/false)
-    return this.isFirstPerson;
-}
 
-// 2. Обнови setupUIEvents() да слуша за новия ID (#btnFirstPerson) и стария (#navModeBtn) за всеки случай:
-setupUIEvents() {
-    document.addEventListener('click', (event) => {
-        // Търси и двата възможни бутона (новия #btnFirstPerson и стария #navModeBtn)
-        const fpBtn = event.target.closest('#btnFirstPerson, #navModeBtn');
-        if (!fpBtn) return;
+    setupUIEvents() {
+        document.addEventListener('click', (event) => {
+            const fpBtn = event.target.closest('#btnFirstPerson, #navModeBtn');
+            if (!fpBtn) return;
 
-        this.toggleFirstPersonMode();
-    });
-
-    // Следим събитията за PointerLockControls, за да поддържаме флагът isFirstPerson винаги точен
-    if (this.fpControls) {
-        this.fpControls.addEventListener('lock', () => {
-            this.isFirstPerson = true;
-            const fpInst = document.getElementById('fpInstructions');
-            if (fpInst) {
-                fpInst.style.display = 'block';
-                fpInst.classList.remove('hidden');
-            }
+            this.toggleFirstPersonMode();
         });
 
-        this.fpControls.addEventListener('unlock', () => {
-            this.isFirstPerson = false;
-            this.orbitControls.enabled = true;
-            const fpInst = document.getElementById('fpInstructions');
-            if (fpInst) {
-                fpInst.style.display = 'none';
-                fpInst.classList.add('hidden');
-            }
-        });
-    }
-}
+        if (this.fpControls) {
+            this.fpControls.addEventListener('lock', () => {
+                this.isFirstPerson = true;
+                const fpInst = document.getElementById('fpInstructions');
+                if (fpInst) {
+                    fpInst.style.display = 'block';
+                    fpInst.classList.remove('hidden');
+                }
+            });
 
-    // ТОВА Е МЕТОДЪТ ЗА КОЛИЗИИ:
+            this.fpControls.addEventListener('unlock', () => {
+                this.isFirstPerson = false;
+                this.orbitControls.enabled = true;
+                const fpInst = document.getElementById('fpInstructions');
+                if (fpInst) {
+                    fpInst.style.display = 'none';
+                    fpInst.classList.add('hidden');
+                }
+            });
+        }
+    }
+
     focusOn(targetPos, distance = 2.0) {
         if (this.isFirstPerson) {
             this.fpControls.unlock();
         }
 
-        this.isClashFocused = true; // Казваме, че гледаме колизия
+        this.isClashFocused = true;
 
-        // Фиксираме въртенето В ТОЧКАТА НА КОЛИЗИЯТА
         this.orbitControls.target.copy(targetPos);
 
-        // Поставяме камерата на удобно разстояние
         this.engine.camera.position.set(
             targetPos.x + distance,
             targetPos.y + distance * 0.7,
@@ -254,7 +254,9 @@ setupUIEvents() {
         if (this.moveState.right) this.fpControls.moveRight(moveDistance);
 
         this.floorRaycaster.ray.origin.copy(this.engine.camera.position);
-        const visibleMeshes = [...this.models[1].meshes, ...this.models[2].meshes].filter(m => m.visible);
+        
+        //  Взима динамично мешовете от ВСИЧКИ слотове
+        const visibleMeshes = this.getAllVisibleMeshes();
         const intersections = this.floorRaycaster.intersectObjects(visibleMeshes);
 
         if (intersections.length > 0) {

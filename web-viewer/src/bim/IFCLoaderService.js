@@ -28,17 +28,36 @@ export class IFCLoaderService {
 
                 console.log(`Модел ${modelSlot} зареден чрез Worker + Smart Instancing!`);
                 if (this.onModelLoaded) this.onModelLoaded();
+
+                // Принудително прерисуваме 1 кадър след пълно зареждане
+                if (this.engine && typeof this.engine.render === 'function') {
+                    this.engine.render();
+                }
             }
         };
 
-        // Захващане на грешки, ако има такива във Web Worker-а
         this.worker.onerror = (error) => {
             console.error("Грешка при обработката в IFC Worker:", error);
         };
     }
 
     async loadIfcFile(arrayBuffer, slot) {
-        // Изпращаме файла към фоновата нишка (Worker) чрез Transferable Objects
+        // Почистваме старата GPU памет
+        if (this.models[slot] && this.models[slot].meshes) {
+            this.models[slot].meshes.forEach(mesh => {
+                if (mesh.geometry) mesh.geometry.dispose();
+                if (mesh.material) {
+                    if (Array.isArray(mesh.material)) {
+                        mesh.material.forEach(m => m.dispose());
+                    } else {
+                        mesh.material.dispose();
+                    }
+                }
+                this.engine.scene.remove(mesh);
+            });
+            this.models[slot].meshes = [];
+        }
+
         this.worker.postMessage({
             action: 'PARSE_IFC',
             arrayBuffer: arrayBuffer,
@@ -46,7 +65,6 @@ export class IFCLoaderService {
         }, [arrayBuffer]); 
     }
 
-    // Новият метод за управление на Landing Card-а
     setupLandingCard(cardId, inputId, browseBtnId, slot, onDone) {
         const card = document.getElementById(cardId);
         const input = document.getElementById(inputId);

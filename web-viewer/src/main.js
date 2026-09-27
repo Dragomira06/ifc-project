@@ -2,19 +2,19 @@ import { Engine } from './core/Engine.js';
 import { CameraManager } from './core/CameraManager.js';
 import { IFCLoaderService } from './bim/IFCLoaderService.js';
 import { BIMDataInspector } from './bim/BIMDataInspector.js';
-import { OctreeManager } from './core/OctreeManager.js';
 import { MaterialManager } from './bim/MaterialManager.js';
 import { EnvironmentManager } from './graphics/EnvironmentManager.js';
 import { SelectionManager } from './editor/SelectionManager.js';
 
+//  Поддръжка на 3 слота за модели
 const models = {
     1: { modelID: null, meshes: [] },
-    2: { modelID: null, meshes: [] }
+    2: { modelID: null, meshes: [] },
+    3: { modelID: null, meshes: [] }
 };
 
 const engine = new Engine('app');
 const cameraManager = new CameraManager(engine, models);
-const octreeManager = new OctreeManager(engine.camera);
 const materialManager = new MaterialManager(engine);
 const envManager = new EnvironmentManager(engine);
 const selectionManager = new SelectionManager(engine, materialManager);
@@ -66,16 +66,12 @@ document.querySelectorAll('.demo-card').forEach(card => {
         demoLoading.classList.remove('hidden');
 
         try {
-            // Теглене на демо файла от папка public/demo/
             const response = await fetch(fileUrl);
             if (!response.ok) throw new Error("Файлът не бе намерен на сървъра.");
             
             const arrayBuffer = await response.arrayBuffer();
-            
-            // Зареждане на модела на сцената
             await ifcLoaderService.loadIfcFile(arrayBuffer, 1);
 
-            // Затваряне на прозорците
             demoLoading.classList.add('hidden');
             demoModal.classList.add('hidden');
             hideLandingScreen();
@@ -98,21 +94,13 @@ document.getElementById('navHelpBtn')?.addEventListener('click', () => {
     alert("ИНСТРУКЦИИ:\n1. Заредете .IFC файл чрез бутона или плъзгане.\n2. Използвайте десния бутон на мишката за въртене.\n3. Кликнете върху обект за редактиране на PBR материалите.");
 });
 
-// Анимационен цикъл
+//  Оптимизиран Анимационен цикъл без повторни Frustum пресмятания
 function animate() {
     requestAnimationFrame(animate);
 
     if (engine?.update) engine.update();
     if (cameraManager?.update) cameraManager.update();
     if (envManager?.update) envManager.update();
-
-    if (octreeManager?.updateFrustumCulling && models) {
-        const model1Meshes = models[1]?.meshes || [];
-        const model2Meshes = models[2]?.meshes || [];
-        if (model1Meshes.length > 0 || model2Meshes.length > 0) {
-            octreeManager.updateFrustumCulling(model1Meshes.concat(model2Meshes));
-        }
-    }
 
     if (engine?.renderer && engine?.scene && engine?.camera) {
         engine.renderer.render(engine.scene, engine.camera);
