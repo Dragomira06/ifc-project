@@ -115,7 +115,8 @@ initToolbarNavigation() {
         { id: 'btnClashes', icon: '⚡', tooltip: 'Проверка за колизии', panel: 'clashPanel' },
         { id: 'btnFirstPerson', icon: '🚶', tooltip: 'Влез вътре (First-Person)', action: 'toggleFP' },
         { id: 'btnEnv', icon: '🌅', tooltip: 'Атмосфера и Осветление', panel: 'envPanelUI' },
-        { id: 'btnElements', icon: '📑', tooltip: 'Елементи в модела', panel: 'elementPanel' }
+        { id: 'btnElements', icon: '📑', tooltip: 'Елементи в модела', panel: 'elementPanel' },
+        { id: 'btnProject', icon: '💾', tooltip: 'Запази / Зареди проект', panel: 'projectPanel' }
     ];
 
     navBar.innerHTML = '';
@@ -229,7 +230,7 @@ toggleSidePanel(panelId, targetBtn) {
     const panel = document.getElementById(panelId);
     if (!panel) return;
 
-    const allPanels = ['infoPanel', 'pbrPanelUI', 'envPanelUI', 'elementPanel', 'clashPanel', 'objectEditorPanel'];
+    const allPanels = ['infoPanel', 'pbrPanelUI', 'envPanelUI', 'elementPanel', 'clashPanel', 'objectEditorPanel','projectPanel'];
     allPanels.forEach(id => {
         if (id !== panelId) {
             const p = document.getElementById(id);
@@ -365,6 +366,52 @@ initFlyoutPanels() {
         `;
         document.body.appendChild(clashPanel);
     }
+
+    // Панел за запази и зареди проект
+    let projectPanel = document.getElementById('projectPanel');
+    if (!projectPanel) {
+        projectPanel = document.createElement('div');
+        projectPanel.id = 'projectPanel';
+        projectPanel.style.cssText = basePanelStyle;
+        projectPanel.innerHTML = `
+            <h3 style="margin: 0 0 10px 0; font-size: 14px; color:#90e0ef;">💾 Управление на проект</h3>
+            <div style="margin-bottom: 12px;">
+                <label style="display:block; margin-bottom:4px; font-size:12px; color:#ccc;">Име на проекта:</label>
+                <input type="text" id="projectNameInput" placeholder="например: MyBIMProject" style="width:100%; padding:6px; background:#111827; color:white; border:1px solid #374151; border-radius:6px; outline:none; font-size:12px;">
+            </div>
+            <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                <button id="saveProjectJson" style="flex:1; padding:8px; background:#2ecc71; color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px; font-weight:bold;">💾 Запази</button>
+                <button id="loadProjectJson" style="flex:1; padding:8px; background:#3498db; color:white; border:none; border-radius:6px; cursor:pointer; font-size:12px; font-weight:bold;">📂 Зареди</button>
+                <input type="file" id="importJsonInput" accept=".json" style="display: none;">
+            </div>
+            <div style="font-size: 11px; color: #aaa; line-height: 1.4; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
+                <b>Как работи:</b><br>
+                1. Заредете 3D модела.<br>
+                2. Направете промени и запазете JSON файла.<br>
+                3. При следващо отваряне заредете модела и после JSON файла.
+            </div>
+        `;
+        document.body.appendChild(projectPanel);
+    }
+
+    document.getElementById('saveProjectJson')?.addEventListener('click', () => {
+        this.exportProjectToJson();
+    });
+
+    const loadBtn = document.getElementById('loadProjectJson');
+    const fileInput = document.getElementById('importJsonInput');
+
+    loadBtn?.addEventListener('click', () => {
+        fileInput.click();
+    });
+
+    fileInput?.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            this.importProjectFromJson(file);
+        }
+        fileInput.value = '';
+    });
 }
 
 /* =========================================================
@@ -1112,5 +1159,132 @@ restoreLastDeletedObject() {
                 this.createClashMarker(clash.intersectionBox);
             }
         });
+    }
+
+    /* =========================================================
+        JSON ЗАПАЗВАНЕ И ЗАРЕЖДАНЕ НА ПРОЕКТА
+        ========================================================= */
+    exportProjectToJson() {
+        const projectData = {
+            version: "1.0",
+            timestamp: new Date().toISOString(),
+            environment: {
+                mode: this.envManager?.currentMode || 'day',
+                sunRotation: typeof this.envManager?.getSunRotation === 'function' ? this.envManager.getSunRotation() : 0,
+                exposure: typeof this.envManager?.getLightIntensity === 'function' ? this.envManager.getLightIntensity() : 1
+            },
+            objectModifications: []
+        };
+
+        // Обхождаме ВСИЧКИ модели/слотове, които съществуват в this.models
+        if (this.models) {
+            Object.keys(this.models).forEach(slotKey => {
+                const modelData = this.models[slotKey];
+                if (!modelData) return;
+
+                let meshes = modelData.meshes || [modelData.mesh];
+                if (!meshes || meshes.length === 0) return;
+
+                meshes.forEach((mesh, index) => {
+                    if (!mesh) return;
+
+                    const colorHex = mesh.material && mesh.material.color ? '#' + mesh.material.color.getHexString() : '#cccccc';
+                    const materialType = mesh.userData?.materialType || 'default';
+                    const textureScale = (mesh.material && mesh.material.userData && mesh.material.userData.uScale) ? mesh.material.userData.uScale.value : 1.0;
+
+                    projectData.objectModifications.push({
+                        slot: slotKey, // Записваме към кой слот/модел принадлежи обектът
+                        index: index,
+                        expressID: mesh.userData?.expressID || null,
+                        visible: mesh.visible,
+                        scale: mesh.scale.x,
+                        color: colorHex,
+                        materialType: materialType,
+                        textureScale: textureScale
+                    });
+                });
+            });
+        }
+
+        // Генериране и изтегляне на JSON файла
+        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(projectData, null, 2));
+        const downloadAnchor = document.createElement('a');
+        downloadAnchor.setAttribute("href", dataStr);
+        downloadAnchor.setAttribute("download", "bim_project_state.json");
+        document.body.appendChild(downloadAnchor);
+        downloadAnchor.click();
+        downloadAnchor.remove();
+    }
+
+    importProjectFromJson(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const projectData = JSON.parse(e.target.result);
+
+                // 1. Възстановяване на атмосферата
+                if (projectData.environment && this.envManager) {
+                    const env = projectData.environment;
+                    this.envManager.setEnvironment(env.mode);
+                    if (typeof this.envManager.setSunRotation === 'function') this.envManager.setSunRotation(env.sunRotation);
+                    if (typeof this.envManager.setLightIntensity === 'function') this.envManager.setLightIntensity(env.exposure);
+
+                    const sunSlider = document.getElementById('sunRotUI');
+                    if (sunSlider) sunSlider.value = env.sunRotation;
+                    const exposureSlider = document.getElementById('exposureUI');
+                    if (exposureSlider) exposureSlider.value = env.exposure;
+
+                    setTimeout(() => {
+                        this.envManager.setEnvironment(env.mode);
+                    }, 50);
+                }
+
+                // 2. Възстановяване на обектите за ВСИЧКИ слотове/модели
+                if (projectData.objectModifications && Array.isArray(projectData.objectModifications)) {
+                    projectData.objectModifications.forEach(mod => {
+                        // Тук използваме mod.slot, за да улучим точно втория, третия или който и да е модел
+                        const modelData = this.models ? this.models[mod.slot] : null;
+                        if (!modelData) return;
+
+                        let meshes = modelData.meshes || [modelData.mesh];
+                        const mesh = meshes[mod.index];
+
+                        if (mesh) {
+                            mesh.visible = mod.visible;
+                            mesh.scale.set(mod.scale, mod.scale, mod.scale);
+                            
+                            if (mod.color && mesh.material && mesh.material.color) {
+                                mesh.material.color.set(new THREE.Color(mod.color));
+                            }
+
+                            if (this.materialManager && mod.materialType) {
+                                this.materialManager.updateObjectColorAndMaterial(
+                                    mesh, 
+                                    mod.color, 
+                                    mod.materialType
+                                );
+                            }
+
+                            if (mod.textureScale !== undefined && mesh.material && mesh.material.userData && mesh.material.userData.uScale) {
+                                mesh.material.userData.uScale.value = mod.textureScale;
+                            }
+                            
+                            mesh.updateMatrixWorld(true);
+                        }
+                    });
+                }
+
+                alert("Проектът с всички модели е зареден успешно!");
+                
+                if (typeof this.buildElementPanel === 'function') {
+                    this.buildElementPanel();
+                }
+
+            } catch (error) {
+                console.error("Грешка при четене на JSON файла:", error);
+                alert("Невалиден JSON файл на проекта!");
+            }
+        };
+        reader.readAsText(file);
     }
 }

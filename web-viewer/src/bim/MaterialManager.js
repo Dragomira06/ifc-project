@@ -174,8 +174,12 @@ export class MaterialManager {
         return 'default';
     }
 
-    updateObjectColorAndMaterial(mesh, hexColor, matType) {
+    updateObjectColorAndMaterial(mesh, hexColor, matType, textureScale = null) {
         const color = new THREE.Color(hexColor);
+        if (textureScale !== null) {
+            if (!mesh.userData) mesh.userData = {};
+            mesh.userData.textureScale = textureScale;
+        }
         this.applyPBRMaterial(mesh, matType, color);
     }
 }
