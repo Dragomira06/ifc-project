@@ -54,6 +54,12 @@ export class Engine {
         window.addEventListener('resize', () => this.onWindowResize());
     }
 
+    render() {
+        if (this.renderer && this.scene && this.camera) {
+            this.renderer.render(this.scene, this.camera);
+        }
+    }
+
     onWindowResize() {
         if (!this.camera || !this.renderer) return;
         this.camera.aspect = window.innerWidth / window.innerHeight;

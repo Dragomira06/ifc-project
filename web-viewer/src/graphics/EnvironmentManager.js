@@ -3,6 +3,9 @@ import * as THREE from 'three';
 export class EnvironmentManager {
     constructor(engine) {
         this.engine = engine;
+        this.currentMode = 'day';
+        this.sunRotation = 0;
+        this.lightIntensity = 1.0;
         
         // Създаваме основата и небето веднага при стартиране
         this.setupArchitecturalStage();
@@ -34,40 +37,42 @@ export class EnvironmentManager {
     }
 
     setEnvironment(type) {
-    if (!this.engine || !this.engine.scene) return;
+        this.currentMode = type;
+        if (!this.engine || !this.engine.scene) return;
 
-    const container = this.engine.container;
-    this.engine.scene.background = null; // Правим сцената прозрачна за CSS градиента
+        const container = this.engine.container;
+        this.engine.scene.background = null; // Правим сцената прозрачна за CSS градиента
 
-    if (type === 'night') {
-        // Нов, по-тъмен нощен градиент (от почти черно #122a5a към много тъмно нощно синьо)
-        container.style.background = 'linear-gradient(to bottom, #23407b 0%, #1f4387 55%, #152032 100%)';
+        if (type === 'night') {
+            // Нов, по-тъмен нощен градиент (от почти черно #122a5a към много тъмно нощно синьо)
+            container.style.background = 'linear-gradient(to bottom, #23407b 0%, #1f4387 55%, #152032 100%)';
 
-        if (this.engine.renderer) this.engine.renderer.toneMappingExposure = 0.4;
-        if (this.engine.dirLight) {
-            this.engine.dirLight.intensity = 0.25;
-            this.engine.dirLight.color.setHex(0x5577aa);
-        }
-        if (this.gridHelper && this.gridHelper.material) {
-            this.gridHelper.material.opacity = 0.15;
-        }
-    } else {
-        // Дневен режим (напълно идентичен)
-        container.style.background = 'linear-gradient(to bottom, #8ca8c8 0%, #c4d3e3 50%, #eef2f7 100%)';
+            if (this.engine.renderer) this.engine.renderer.toneMappingExposure = 0.4;
+            if (this.engine.dirLight) {
+                this.engine.dirLight.intensity = 0.25;
+                this.engine.dirLight.color.setHex(0x5577aa);
+            }
+            if (this.gridHelper && this.gridHelper.material) {
+                this.gridHelper.material.opacity = 0.15;
+            }
+        } else {
+            // Дневен режим (напълно идентичен)
+            container.style.background = 'linear-gradient(to bottom, #8ca8c8 0%, #c4d3e3 50%, #eef2f7 100%)';
 
-        if (this.engine.renderer) this.engine.renderer.toneMappingExposure = 1.0;
-        if (this.engine.dirLight) {
-            this.engine.dirLight.intensity = 1.4;
-            this.engine.dirLight.color.setHex(0xffffff);
-            this.engine.dirLight.castShadow = true;
-        }
-        if (this.gridHelper && this.gridHelper.material) {
-            this.gridHelper.material.opacity = 0.4;
+            if (this.engine.renderer) this.engine.renderer.toneMappingExposure = 1.0;
+            if (this.engine.dirLight) {
+                this.engine.dirLight.intensity = 1.4;
+                this.engine.dirLight.color.setHex(0xffffff);
+                this.engine.dirLight.castShadow = true;
+            }
+            if (this.gridHelper && this.gridHelper.material) {
+                this.gridHelper.material.opacity = 0.4;
+            }
         }
     }
-}
 
     setSunRotation(degrees) {
+        this.sunRotation = degrees;
         if (!this.engine || !this.engine.dirLight) return;
         
         // Въртим слънцето в кръг около сградата за динамични сенки
@@ -78,9 +83,18 @@ export class EnvironmentManager {
     }
 
     setLightIntensity(value) {
+        this.lightIntensity = value;
         if (this.engine && this.engine.renderer) {
             this.engine.renderer.toneMappingExposure = value;
         }
+    }
+
+    getSunRotation() {
+        return this.sunRotation !== undefined ? this.sunRotation : 0;
+    }
+
+    getLightIntensity() {
+        return this.lightIntensity !== undefined ? this.lightIntensity : (this.engine?.renderer?.toneMappingExposure || 1.0);
     }
 
     update() {
