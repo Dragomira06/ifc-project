@@ -44,22 +44,26 @@ export class InstancedMeshManager {
                 bufferGeometry.setIndex(new THREE.BufferAttribute(item.indices, 1));
             }
 
-            // Бързо изчисляване на нормалите
-            bufferGeometry.computeVertexNormals();
+            // ⚡ Оптимизация на нормалите: ако уъркърът вече ни е изпратил предварително изчислени нормали от WASM
+            if (item.normals && item.normals.length > 0) {
+                bufferGeometry.setAttribute('normal', new THREE.Float32BufferAttribute(item.normals, 3));
+            } else {
+                bufferGeometry.computeVertexNormals();
+            }
 
-            // ⚡ МНОГО БЪРЗ UV ГЕНЕРАТОР (Без тежки JavaScript цикли, които замразяват браузъра)
+            // ⚡ Бърз UV генератор без тежки JS циклични забавяния
             if (!bufferGeometry.attributes.uv) {
                 const count = posAttr.count;
                 const uvs = new Float32Array(count * 2);
                 const array = posAttr.array;
                 for (let i = 0; i < count; i++) {
-                    uvs[i * 2] = array[i * 3];     // X
+                    uvs[i * 2] = array[i * 3];         // X
                     uvs[i * 2 + 1] = array[i * 3 + 1]; // Y
                 }
                 bufferGeometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
             }
 
-            // Изчисляваме сферата за бързо скриване извън екрана
+            // Изчисляваме сферата за бързо Frustum скриване извън екрана
             bufferGeometry.computeBoundingSphere();
 
             const count = item.instances.length;
@@ -67,24 +71,29 @@ export class InstancedMeshManager {
             const baseColor = this.getColorForType(typeCode);
             const isWindow = (typeCode === WebIFC.IFCWINDOW);
 
-            // Лек материал за максимално висока кадрова честота (FPS)
+            // Лек материал за максимална производителност
             const material = new THREE.MeshStandardMaterial({
                 color: baseColor,
                 roughness: 0.5,
                 metalness: 0.1,
                 transparent: isWindow,
                 opacity: isWindow ? 0.45 : 1.0,
-                depthWrite: !isWindow // Оптимизация за прозрачните детайли
+                depthWrite: !isWindow
             });
 
             const instancedMesh = new THREE.InstancedMesh(bufferGeometry, material, count);
             
-            // ⚡ Изключваме сенките по подразбиране (Сенките са основна причина за лаг при 3 модела)
+            // ⚡ Изключваме сенките по подразбиране
             instancedMesh.castShadow = false;
             instancedMesh.receiveShadow = false;
 
-            // ⚡ Скрива обекти извън погледа на камерата
+            // ⚡ Frustum Culling - пропуска обектите извън зрителното поле на камерата
             instancedMesh.frustumCulled = true;
+
+            // ⚡ Изключваме непрекъснатото преизчисляване на матрицата (matrixAutoUpdate)
+            // Тъй като геометрията на BIM модела е статична, спестяваме стотици хиляди traverse изчисления
+            instancedMesh.matrixAutoUpdate = false;
+            instancedMesh.updateMatrix();
 
             instancedMesh.userData.typeCode = typeCode;
             instancedMesh.userData.modelSlot = slot;

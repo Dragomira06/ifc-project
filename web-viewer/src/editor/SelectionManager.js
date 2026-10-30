@@ -19,11 +19,18 @@ export class SelectionManager {
         this.transformControls.setSize(0.75);
         this.engine.scene.add(this.transformControls);
 
-        // Пауза на камерата при плъзгане със стрелките
+        // ⚡ On-Demand Rendering: Прерисува при местене с 3D стрелките
+        this.transformControls.addEventListener('change', () => {
+            if (this.engine) this.engine.requestRender(2);
+        });
+
+        // Пауза на въртенето на камерата при плъзгане със стрелките
         this.transformControls.addEventListener('dragging-changed', (event) => {
-            if (this.engine.controls) {
-                this.engine.controls.enabled = !event.value;
+            const orbit = this.inspector?.cameraManager?.orbitControls || this.engine?.orbitControls;
+            if (orbit) {
+                orbit.enabled = !event.value;
             }
+            if (this.engine) this.engine.requestRender(2);
         });
 
         this.initEvents();
@@ -45,13 +52,16 @@ export class SelectionManager {
 
             this.raycaster.setFromCamera(this.mouse, this.engine.camera);
             
-            const intersects = this.raycaster.intersectObjects(this.engine.scene.children, true);
+            // ⚡ Оптимизация на търсенето: Използваме директно видимите мешове на модела
+            // вместо тежък рекурсивен traverse на цялата сцена с всички светлини и помощни обекти
+            const candidateMeshes = this.inspector?.cameraManager
+                ? this.inspector.cameraManager.getAllVisibleMeshes()
+                : this.engine.scene.children;
+
+            const intersects = this.raycaster.intersectObjects(candidateMeshes, false);
 
             const validHits = intersects.filter(hit => 
-                hit.object.type === 'Mesh' && 
-                !hit.object.isTransformControls && 
-                hit.object.parent !== this.transformControls &&
-                hit.object.name !== 'transformControl'
+                hit.object.type === 'Mesh' || hit.object.isInstancedMesh
             );
 
             if (validHits.length > 0) {
@@ -71,10 +81,13 @@ export class SelectionManager {
         if (this.inspector && typeof this.inspector.updateObjectPropertiesData === 'function') {
             this.inspector.updateObjectPropertiesData({ mesh: mesh });
         }
+
+        if (this.engine) this.engine.requestRender(2);
     }
 
     deselect() {
         this.selectedMesh = null;
         this.transformControls.detach();
+        if (this.engine) this.engine.requestRender(2);
     }
 }

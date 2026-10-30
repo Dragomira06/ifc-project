@@ -20,7 +20,7 @@ export class CameraManager {
         this.mouse = new THREE.Vector2();
         this.onObjectSelected = null;
 
-        this.isClashFocused = false; // Флаг дали в момента сме фокусирали колизия
+        this.isClashFocused = false;
 
         this.initControls();
         this.setupFreeZoom();
@@ -30,11 +30,24 @@ export class CameraManager {
         this.setupClickSelection();
     }
 
-    //  Помощен метод за динамично взимане на всички видими мешове от абсолютно всички слотове
+    // ⚡ Оптимизирано събиране на видими мешове без излишен GC боклук (без flatMap/filter)
     getAllVisibleMeshes() {
-        return Object.values(this.models)
-            .flatMap(slot => slot?.meshes || [])
-            .filter(m => m && m.visible);
+        const visible = [];
+        if (!this.models) return visible;
+
+        for (const slot in this.models) {
+            const model = this.models[slot];
+            if (!model || !model.meshes) continue;
+            const meshes = model.meshes;
+            const len = meshes.length;
+            for (let i = 0; i < len; i++) {
+                const m = meshes[i];
+                if (m && m.visible && !m.userData?.isDeleted) {
+                    visible.push(m);
+                }
+            }
+        }
+        return visible;
     }
 
     initControls() {
@@ -45,7 +58,16 @@ export class CameraManager {
         this.orbitControls.maxDistance = 1000;
         this.orbitControls.screenSpacePanning = true;
 
+        // ⚡ On-Demand Rendering: Прерисува автоматично при движение на камерата
+        this.orbitControls.addEventListener('change', () => {
+            if (this.engine) this.engine.requestRender(2);
+        });
+
         this.fpControls = new PointerLockControls(this.engine.camera, document.body);
+
+        this.fpControls.addEventListener('change', () => {
+            if (this.engine) this.engine.requestRender(2);
+        });
 
         this.fpControls.addEventListener('lock', () => {
             this.isFirstPerson = true;
@@ -55,6 +77,7 @@ export class CameraManager {
                 navModeBtn.style.background = "#e67e22";
             }
             document.getElementById('fpInstructions')?.classList.remove('hidden');
+            if (this.engine) this.engine.requestRender(2);
         });
 
         this.fpControls.addEventListener('unlock', () => {
@@ -66,16 +89,14 @@ export class CameraManager {
                 navModeBtn.style.background = "#27ae60";
             }
             document.getElementById('fpInstructions')?.classList.add('hidden');
+            if (this.engine) this.engine.requestRender(2);
         });
     }
 
     setupFreeZoom() {
         this.engine.renderer.domElement.addEventListener('wheel', (event) => {
             if (this.isFirstPerson) return;
-
-            if (this.isClashFocused) {
-                return; 
-            }
+            if (this.isClashFocused) return; 
 
             const vector = new THREE.Vector3();
             this.engine.camera.getWorldDirection(vector);
@@ -88,6 +109,9 @@ export class CameraManager {
                 this.engine.camera.position.addScaledVector(vector, -zoomSpeed);
                 this.orbitControls.target.addScaledVector(vector, -zoomSpeed);
             }
+
+            this.orbitControls.update();
+            if (this.engine) this.engine.requestRender(2);
         }, { passive: true });
     }
 
@@ -104,14 +128,14 @@ export class CameraManager {
 
             raycaster.setFromCamera(mouse, this.engine.camera);
             
-            //  Взима динамично мешовете от ВСИЧКИ слотове
             const visibleMeshes = this.getAllVisibleMeshes();
-            const intersects = raycaster.intersectObjects(visibleMeshes);
+            const intersects = raycaster.intersectObjects(visibleMeshes, false);
 
             if (intersects.length > 0) {
                 this.isClashFocused = false;
                 this.orbitControls.target.copy(intersects[0].point);
                 this.orbitControls.update();
+                if (this.engine) this.engine.requestRender(2);
             }
         });
     }
@@ -125,7 +149,6 @@ export class CameraManager {
 
             this.selectionRaycaster.setFromCamera(this.mouse, this.engine.camera);
 
-            //  Взима динамично мешовете от ВСИЧКИ слотове
             const visibleMeshes = this.getAllVisibleMeshes();
             const intersects = this.selectionRaycaster.intersectObjects(visibleMeshes, false);
 
@@ -144,6 +167,8 @@ export class CameraManager {
                         typeCode: mesh.userData.typeCode,
                         modelSlot: mesh.userData.modelSlot
                     });
+
+                    if (this.engine) this.engine.requestRender(2);
                 }
             }
         });
@@ -152,12 +177,14 @@ export class CameraManager {
     setupKeyboardListeners() {
         window.addEventListener('keydown', (e) => {
             if (!this.isFirstPerson) return;
+            let changed = false;
             switch (e.code) {
-                case 'KeyW': this.moveState.forward = true; break;
-                case 'KeyS': this.moveState.backward = true; break;
-                case 'KeyA': this.moveState.left = true; break;
-                case 'KeyD': this.moveState.right = true; break;
+                case 'KeyW': this.moveState.forward = true; changed = true; break;
+                case 'KeyS': this.moveState.backward = true; changed = true; break;
+                case 'KeyA': this.moveState.left = true; changed = true; break;
+                case 'KeyD': this.moveState.right = true; changed = true; break;
             }
+            if (changed && this.engine) this.engine.requestRender(2);
         });
 
         window.addEventListener('keyup', (e) => {
@@ -185,6 +212,7 @@ export class CameraManager {
             this.fpControls.unlock();
         }
         
+        if (this.engine) this.engine.requestRender(2);
         return this.isFirstPerson;
     }
 
@@ -235,18 +263,34 @@ export class CameraManager {
 
         this.engine.camera.lookAt(targetPos);
         this.orbitControls.update();
+        if (this.engine) this.engine.requestRender(3);
     }
 
+    // ⚡ Връща true, ако камерата е в активно движение (за on-demand rendering цикъла)
     update() {
         const delta = this.clock.getDelta();
         if (this.isFirstPerson) {
-            this.updateFirstPersonMovement(delta);
+            return this.updateFirstPersonMovement(delta);
         } else {
-            this.orbitControls.update();
+            const hasMoved = this.orbitControls.update();
+            if (hasMoved && this.engine) {
+                this.engine.requestRender(1);
+            }
+            return hasMoved;
         }
     }
 
+    // ⚡ Оптимизирано движение в First Person:
+    // Ако потребителят не натиска клавиши и не пада, прескачаме тежкия Raycast към хиляди полигони!
     updateFirstPersonMovement(delta) {
+        const isMoving = this.moveState.forward || this.moveState.backward || 
+                         this.moveState.left || this.moveState.right;
+        const isAirborne = Math.abs(this.verticalVelocity) > 0.001;
+
+        if (!isMoving && !isAirborne) {
+            return false;
+        }
+
         const moveDistance = this.MOVE_SPEED * delta;
         if (this.moveState.forward) this.fpControls.moveForward(moveDistance);
         if (this.moveState.backward) this.fpControls.moveForward(-moveDistance);
@@ -255,9 +299,8 @@ export class CameraManager {
 
         this.floorRaycaster.ray.origin.copy(this.engine.camera.position);
         
-        //  Взима динамично мешовете от ВСИЧКИ слотове
         const visibleMeshes = this.getAllVisibleMeshes();
-        const intersections = this.floorRaycaster.intersectObjects(visibleMeshes);
+        const intersections = this.floorRaycaster.intersectObjects(visibleMeshes, false);
 
         if (intersections.length > 0) {
             const hit = intersections[0];
@@ -279,5 +322,8 @@ export class CameraManager {
                 this.verticalVelocity = 0;
             }
         }
+
+        if (this.engine) this.engine.requestRender(1);
+        return true;
     }
 }

@@ -29,9 +29,13 @@ export class IFCLoaderService {
                 console.log(`Модел ${modelSlot} зареден чрез Worker + Smart Instancing!`);
                 if (this.onModelLoaded) this.onModelLoaded();
 
-                // Принудително прерисуваме 1 кадър след пълно зареждане
-                if (this.engine && typeof this.engine.render === 'function') {
-                    this.engine.render();
+                // ⚡ Принудително прерисуваме кадрите след зареждане
+                if (this.engine) {
+                    if (typeof this.engine.requestRender === 'function') {
+                        this.engine.requestRender(3);
+                    } else if (typeof this.engine.render === 'function') {
+                        this.engine.render();
+                    }
                 }
             }
         };
@@ -56,6 +60,10 @@ export class IFCLoaderService {
                 this.engine.scene.remove(mesh);
             });
             this.models[slot].meshes = [];
+        }
+
+        if (this.engine?.requestRender) {
+            this.engine.requestRender(2);
         }
 
         this.worker.postMessage({
@@ -105,7 +113,7 @@ export class IFCLoaderService {
         });
 
         card.addEventListener('drop', (e) => {
-            e.preventDefault();
+            e.preventDefault(); 
             card.style.borderColor = 'rgba(10, 189, 227, 0.4)'; 
             card.style.background = 'rgba(255, 255, 255, 0.03)';
             if (e.dataTransfer.files.length > 0) handleFile(e.dataTransfer.files[0]);

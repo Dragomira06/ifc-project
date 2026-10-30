@@ -6,7 +6,7 @@ import { MaterialManager } from './bim/MaterialManager.js';
 import { EnvironmentManager } from './graphics/EnvironmentManager.js';
 import { SelectionManager } from './editor/SelectionManager.js';
 
-//  Поддръжка на 3 слота за модели
+// Поддръжка на 3 слота за модели
 const models = {
     1: { modelID: null, meshes: [] },
     2: { modelID: null, meshes: [] },
@@ -21,6 +21,7 @@ const selectionManager = new SelectionManager(engine, materialManager);
 
 const ifcLoaderService = new IFCLoaderService(engine, models, () => {
     if (inspector) inspector.buildElementPanel();
+    if (engine) engine.requestRender(3);
 });
 
 const inspector = new BIMDataInspector(engine, models, ifcLoaderService, cameraManager, materialManager, envManager);
@@ -33,6 +34,7 @@ const landingScreen = document.getElementById('landingScreen');
 // Настройка на Landing Card за Модел 1
 ifcLoaderService.setupLandingCard('dropCard1', 'fileInput1', 'browseBtn1', 1, () => {
     hideLandingScreen();
+    engine.requestRender(3);
 });
 
 function hideLandingScreen() {
@@ -43,6 +45,7 @@ function hideLandingScreen() {
         setTimeout(() => landingScreen.classList.add('hidden'), 600);
     }
     if (addModelBtn) addModelBtn.classList.remove('hidden');
+    if (engine) engine.requestRender(2);
 }
 
 // --- ЛОГИКА ЗА ДЕМО МОДАЛА ---
@@ -75,6 +78,7 @@ document.querySelectorAll('.demo-card').forEach(card => {
             demoLoading.classList.add('hidden');
             demoModal.classList.add('hidden');
             hideLandingScreen();
+            if (engine) engine.requestRender(3);
 
         } catch (error) {
             alert("Грешка при зареждане на демо файла! Моля проверете дали файлът съществува в папката /demo/ на сървъра.");
@@ -94,16 +98,32 @@ document.getElementById('navHelpBtn')?.addEventListener('click', () => {
     alert("ИНСТРУКЦИИ:\n1. Заредете .IFC файл чрез бутона или плъзгане.\n2. Използвайте десния бутон на мишката за въртене.\n3. Кликнете върху обект за редактиране на PBR материалите.");
 });
 
-//  Оптимизиран Анимационен цикъл без повторни Frustum пресмятания
+// ⚡ Ултра-бърз On-Demand Render Loop
+// Рендира кадри САМО при реална нужда (движение на камерата, селекция, промяна на материали).
+// При покой GPU и CPU товарът пада до 0%, гарантирайки висока кадрова честота без лаг и влачене!
 function animate() {
     requestAnimationFrame(animate);
 
-    if (engine?.update) engine.update();
-    if (cameraManager?.update) cameraManager.update();
-    if (envManager?.update) envManager.update();
+    let needsRender = (engine && engine.renderFrames > 0);
 
-    if (engine?.renderer && engine?.scene && engine?.camera) {
-        engine.renderer.render(engine.scene, engine.camera);
+    // 1. Проверка за движение на камерата (OrbitControls Damping / First-Person)
+    if (cameraManager?.update) {
+        const cameraMoved = cameraManager.update();
+        if (cameraMoved) needsRender = true;
+    }
+
+    // 2. Обновяване на околната среда
+    if (envManager?.update) {
+        const envUpdated = envManager.update();
+        if (envUpdated) needsRender = true;
+    }
+
+    // 3. Изпълнение на рендера само при нужда
+    if (needsRender && engine) {
+        if (engine.renderFrames > 0) {
+            engine.renderFrames--;
+        }
+        engine.render();
     }
 }
 
